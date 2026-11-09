@@ -1,0 +1,2066 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CRX Manage API",
+    "version": "1",
+    "description": "The operator console's API. Every console action is one of these routes.\n\nEvery request carries four headers: CRX-Key-Id, CRX-Timestamp (unix milliseconds), CRX-Nonce (16 to 64 characters of A-Z, a-z, 0-9, _ and -) and CRX-Signature.\n\nCRX-Signature is the base64 Ed25519 signature, made with the key's private key, of these six lines joined by a line feed, with no line feed at the end:\n\nCRX-MANAGE-V1, the method in capitals, the path with its query as sent (for example /api/v1/clients), the timestamp, the nonce, and the lowercase hex SHA-256 of the body (of the empty string when there is no body).\n\nA timestamp more than 120 seconds old or more than 5 seconds ahead, a nonce used before, an unknown or revoked key, or a bad signature answers 401. A key takes 60 requests a minute; past that, 429.\n\nWrites take a JSON body of at most 8 KB (the logo, 300 KB) and an optional Idempotency-Key header, kept 24 hours."
+  },
+  "servers": [
+    {
+      "url": "https://manage.crxfx.com/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "keyId": [],
+      "timestamp": [],
+      "nonce": [],
+      "signature": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "keyId": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "CRX-Key-Id",
+        "description": "The key id, mk_ followed by 16 hex characters."
+      },
+      "timestamp": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "CRX-Timestamp",
+        "description": "Unix time in milliseconds."
+      },
+      "nonce": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "CRX-Nonce",
+        "description": "16 to 64 characters of A-Z, a-z, 0-9, _ and -. Used once."
+      },
+      "signature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "CRX-Signature",
+        "description": "Base64 Ed25519 signature of the signing message."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "bad_request",
+                  "unauthorized",
+                  "forbidden",
+                  "not_found",
+                  "conflict",
+                  "rate_limited",
+                  "unavailable"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string",
+                "description": "The body field the error is about."
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "bad_request": {
+        "description": "The request is malformed or a field is invalid. `field` names the field.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "unauthorized": {
+        "description": "No valid session or signature.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "forbidden": {
+        "description": "The caller's role does not allow this request.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "not_found": {
+        "description": "No such resource for this operator.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "conflict": {
+        "description": "The request conflicts with the current state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "rate_limited": {
+        "description": "More than 60 requests in one minute for this key.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "unavailable": {
+        "description": "The service cannot complete the request now. No change was made.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "Read the operator and the caller.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Operator id and name, the caller, and the caller's role.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "Operator id and name, the caller, and the caller's role.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "operator": "northwind-operator.example",
+                  "name": "Northwind Operator",
+                  "role": "admin",
+                  "via": "api",
+                  "email": null,
+                  "keyId": "mk_4f1a9c0e2b7d3a55"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "me"
+      }
+    },
+    "/team": {
+      "get": {
+        "operationId": "getTeam",
+        "summary": "List the operator's members.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Members: email, name, member role, console role.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "Members: email, name, member role, console role.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "members": [
+                    {
+                      "email": "ana@northwind-operator.example",
+                      "name": "Ana Lima",
+                      "memberRole": "admin",
+                      "role": "admin"
+                    },
+                    {
+                      "email": "ben@northwind-operator.example",
+                      "name": "Ben Ito",
+                      "memberRole": "reader",
+                      "role": "viewer"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "team"
+      }
+    },
+    "/team/role": {
+      "post": {
+        "operationId": "postTeamRole",
+        "summary": "Set a member's console role. The last admin keeps the admin role.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The member with the new console role.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The member with the new console role.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "email": "ben@northwind-operator.example",
+                  "role": "reviewer"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "set_team_role",
+        "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "description": "The member's email."
+                  },
+                  "role": {
+                    "description": "`admin`, `reviewer` or `viewer`."
+                  }
+                }
+              },
+              "example": {
+                "email": "ana.ruiz@northwind.example",
+                "role": "reviewer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clients": {
+      "get": {
+        "operationId": "getClients",
+        "summary": "List client firms.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Clients: firmId, name, KYB state, current step, who acts next, since, updatedAt.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "Clients: firmId, name, KYB state, current step, who acts next, since, updatedAt.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "clients": [
+                    {
+                      "firmId": "harbor-trade.test",
+                      "name": "Harbor Trade",
+                      "state": "in_progress",
+                      "step": "Identity check",
+                      "who": "Client firm",
+                      "since": "2026-11-02T15:20:00.000Z",
+                      "updatedAt": "2026-11-08T13:40:00.000Z",
+                      "kyb": "read"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "clients"
+      }
+    },
+    "/clients/{firmId}": {
+      "get": {
+        "operationId": "getClientsFirmId",
+        "summary": "Read one client's KYB file.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: KYB steps (key, label, status, who), people checks and invites.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "KYB steps (key, label, status, who), people checks and invites.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "firmId": "harbor-trade.test",
+                  "name": "Harbor Trade",
+                  "state": "in_progress",
+                  "step": "Identity check",
+                  "who": "Client firm",
+                  "since": "2026-11-02T15:20:00.000Z",
+                  "updatedAt": "2026-11-08T13:40:00.000Z",
+                  "kyb": "read",
+                  "steps": [
+                    {
+                      "key": "application",
+                      "label": "Company application",
+                      "status": "done",
+                      "who": "Client firm"
+                    },
+                    {
+                      "key": "identity",
+                      "label": "Identity check",
+                      "status": "started",
+                      "who": "Client firm"
+                    },
+                    {
+                      "key": "certification",
+                      "label": "Certification signature",
+                      "status": "not_started",
+                      "who": "Client firm"
+                    },
+                    {
+                      "key": "review",
+                      "label": "CRX review",
+                      "status": "not_started",
+                      "who": "CRX"
+                    }
+                  ],
+                  "people": [
+                    {
+                      "name": "Dana Cole",
+                      "state": "started"
+                    }
+                  ],
+                  "invites": [
+                    {
+                      "id": "inv_8d2f4a6c1e3b5a70",
+                      "kind": "person",
+                      "operator": "northwind-operator.example",
+                      "firmId": "harbor-trade.test",
+                      "email": "dana@harbor-trade.test",
+                      "name": "Dana Cole",
+                      "state": "sent",
+                      "link": "https://kyb.crxfx.com/verify?t=example",
+                      "createdAt": "2026-11-09T14:05:00.000Z",
+                      "expiresAt": "2026-11-24T14:05:00.000Z",
+                      "by": "ana@northwind-operator.example"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "client",
+        "parameters": [
+          {
+            "name": "firmId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/clients/{firmId}/accounts": {
+      "get": {
+        "operationId": "getClientsFirmIdAccounts",
+        "summary": "Read one client's account summary.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: `{available: true}` with seats, desk status, balances summary, trades summary and open positions. A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "`{available: true}` with seats, desk status, balances summary, trades summary and open positions. A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "available": true,
+                  "seats": {
+                    "count": 1,
+                    "items": [
+                      {
+                        "status": "approved",
+                        "last4": "9c41"
+                      }
+                    ]
+                  },
+                  "desk": "active",
+                  "balances": {
+                    "freeUsdc": "12500.00",
+                    "lockedUsdc": "2500.00"
+                  },
+                  "trades": {
+                    "count30d": 4,
+                    "notionalUsd30d": "480000.00"
+                  },
+                  "openPositions": 2
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "client_accounts",
+        "parameters": [
+          {
+            "name": "firmId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/clients/{firmId}/balances": {
+      "get": {
+        "operationId": "getClientsFirmIdBalances",
+        "summary": "Read one client's balances.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: `{available: true}` with asOf and balances: asset, free and locked. Locked is held as margin. A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "`{available: true}` with asOf and balances: asset, free and locked. Locked is held as margin. A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "available": true,
+                  "asOf": "2026-11-09T14:05:00.000Z",
+                  "balances": [
+                    {
+                      "asset": "USDC",
+                      "free": "12500.00",
+                      "locked": "2500.00"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "client_balances",
+        "parameters": [
+          {
+            "name": "firmId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/clients/{firmId}/trades": {
+      "get": {
+        "operationId": "getClientsFirmIdTrades",
+        "summary": "List one client's trades, newest first.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: `{available: true}` with trades and `next`, the cursor of the next page or null. A trade: id, pair, side, notional, notionalCurrency, rate, valueDate, status (`pending`, `open`, `closed` or `refused`), openedAt, closedAt, and pnlUsd, the result the client's desk shows or null. Null where the client's account holds no value: side (a leg whose side the account does not show), rate, valueDate (a refused trade), openedAt (a trade still being sent), closedAt (not closed), notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "`{available: true}` with trades and `next`, the cursor of the next page or null. A trade: id, pair, side, notional, notionalCurrency, rate, valueDate, status (`pending`, `open`, `closed` or `refused`), openedAt, closedAt, and pnlUsd, the result the client's desk shows or null. Null where the client's account holds no value: side (a leg whose side the account does not show), rate, valueDate (a refused trade), openedAt (a trade still being sent), closedAt (not closed), notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "available": true,
+                  "trades": [
+                    {
+                      "id": "0x5c1e9a7b3d2f4068a1c3e5f7092b4d6f8a0c2e4f6a8b0d2f4e6a8c0b2d4f6a81",
+                      "pair": "USD/BRL",
+                      "side": "buy",
+                      "notional": "1000000.00",
+                      "notionalCurrency": "USD",
+                      "rate": "5.4321",
+                      "valueDate": "2026-12-15",
+                      "status": "open",
+                      "openedAt": "2026-11-09T14:05:00.000Z",
+                      "closedAt": null,
+                      "pnlUsd": null
+                    },
+                    {
+                      "id": "0x2b4d6f8a0c2e4f6a8b0d2f4e6a8c0b2d4f6a815c1e9a7b3d2f4068a1c3e5f709",
+                      "pair": "USD/MXN",
+                      "side": "sell",
+                      "notional": "500000.00",
+                      "notionalCurrency": "USD",
+                      "rate": "18.25000",
+                      "valueDate": "2026-11-06",
+                      "status": "closed",
+                      "openedAt": "2026-10-30T15:20:00.000Z",
+                      "closedAt": "2026-11-06T21:00:00.000Z",
+                      "pnlUsd": "1250.00"
+                    }
+                  ],
+                  "next": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "client_trades",
+        "parameters": [
+          {
+            "name": "firmId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "`open`, `closed` or `all`. Default: `all`. `open` leaves out `pending` and `closed` leaves out `refused`: both come with `all` alone.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "ISO time with `Z` or an offset: trades opened at or after it. In a raw URL, encode `+` as `%2B`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most trades to answer, 1 to 200. Default: 50.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The `next` value of the previous answer: the page after it.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/invites": {
+      "get": {
+        "operationId": "getInvites",
+        "summary": "List invites.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Invites with their state.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "Invites with their state.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "invites": [
+                    {
+                      "id": "inv_8d2f4a6c1e3b5a70",
+                      "kind": "person",
+                      "operator": "northwind-operator.example",
+                      "firmId": "harbor-trade.test",
+                      "email": "dana@harbor-trade.test",
+                      "name": "Dana Cole",
+                      "state": "sent",
+                      "link": "https://kyb.crxfx.com/verify?t=example",
+                      "createdAt": "2026-11-09T14:05:00.000Z",
+                      "expiresAt": "2026-11-24T14:05:00.000Z",
+                      "by": "ana@northwind-operator.example"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "invites"
+      },
+      "post": {
+        "operationId": "postInvites",
+        "summary": "Invite a client firm or a person of a client firm.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAnswer: The invite. A person invite carries its link.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The invite. A person invite carries its link.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "invite": {
+                    "id": "inv_2c7e9a4b6d1f3e85",
+                    "kind": "firm",
+                    "operator": "northwind-operator.example",
+                    "firmId": "acme.example",
+                    "email": "treasury@acme.example",
+                    "name": "Sam Lee",
+                    "firmName": "Acme Trading Ltd",
+                    "state": "prepared",
+                    "link": null,
+                    "createdAt": "2026-11-09T14:05:00.000Z",
+                    "expiresAt": null,
+                    "by": "ana@northwind-operator.example"
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The invite. A person invite carries its link.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "invite": {
+                    "id": "inv_2c7e9a4b6d1f3e85",
+                    "kind": "firm",
+                    "operator": "northwind-operator.example",
+                    "firmId": "acme.example",
+                    "email": "treasury@acme.example",
+                    "name": "Sam Lee",
+                    "firmName": "Acme Trading Ltd",
+                    "state": "prepared",
+                    "link": null,
+                    "createdAt": "2026-11-09T14:05:00.000Z",
+                    "expiresAt": null,
+                    "by": "ana@northwind-operator.example"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-sdk": "invite",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "description": "`firm` or `person`."
+                  },
+                  "firmName": {
+                    "description": "Firm invite: the client firm's name."
+                  },
+                  "contactEmail": {
+                    "description": "Firm invite: the contact's email."
+                  },
+                  "contactName": {
+                    "description": "Firm invite: the contact's name."
+                  },
+                  "firmId": {
+                    "description": "Person invite: the client firm."
+                  },
+                  "email": {
+                    "description": "Person invite: the person's email."
+                  },
+                  "name": {
+                    "description": "Person invite: the person's name."
+                  }
+                }
+              },
+              "example": {
+                "kind": "firm",
+                "firmName": "Acme Trading Ltd",
+                "contactEmail": "treasury@acme.example",
+                "contactName": "Sam Lee"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invites/{id}/resend": {
+      "post": {
+        "operationId": "postInvitesIdResend",
+        "summary": "Issue a new link. The previous link stops working.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAnswer: The invite with its new link.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The invite with its new link.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "invite": {
+                    "id": "inv_8d2f4a6c1e3b5a70",
+                    "kind": "person",
+                    "operator": "northwind-operator.example",
+                    "firmId": "harbor-trade.test",
+                    "email": "dana@harbor-trade.test",
+                    "name": "Dana Cole",
+                    "state": "sent",
+                    "link": "https://kyb.crxfx.com/verify?t=example-2",
+                    "createdAt": "2026-11-09T14:05:00.000Z",
+                    "expiresAt": "2026-11-24T14:05:00.000Z",
+                    "by": "ana@northwind-operator.example"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-sdk": "resend_invite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/invites/{id}/revoke": {
+      "post": {
+        "operationId": "postInvitesIdRevoke",
+        "summary": "Revoke an invite. Its link stops working.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAnswer: The revoked invite.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The revoked invite.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "invite": {
+                    "id": "inv_8d2f4a6c1e3b5a70",
+                    "kind": "person",
+                    "operator": "northwind-operator.example",
+                    "firmId": "harbor-trade.test",
+                    "email": "dana@harbor-trade.test",
+                    "name": "Dana Cole",
+                    "state": "revoked",
+                    "link": null,
+                    "createdAt": "2026-11-09T14:05:00.000Z",
+                    "expiresAt": "2026-11-24T14:05:00.000Z",
+                    "by": "ana@northwind-operator.example"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-sdk": "revoke_invite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/brand": {
+      "get": {
+        "operationId": "getBrand",
+        "summary": "Read the draft and the published brand.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Draft, published and publishedAt.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "Draft, published and publishedAt.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "draft": {
+                    "displayName": "Northwind",
+                    "logo": "3f9c2a71b0d4e6a8.png",
+                    "colors": {
+                      "primary": "#02213b",
+                      "primaryText": "#ffffff",
+                      "background": "#fcfcfc",
+                      "text": "#0d0d0d",
+                      "accent": "#455acc"
+                    },
+                    "font": "Inter",
+                    "senderName": "Northwind",
+                    "supportEmail": "support@northwind-operator.example",
+                    "texts": {
+                      "welcomeTitle": "Set up your business",
+                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
+                      "helpLine": "For help, reply to any email from us.",
+                      "doneBody": "We have your application. We will email you at each step."
+                    }
+                  },
+                  "published": {
+                    "displayName": "Northwind",
+                    "logo": "3f9c2a71b0d4e6a8.png",
+                    "colors": {
+                      "primary": "#02213b",
+                      "primaryText": "#ffffff",
+                      "background": "#fcfcfc",
+                      "text": "#0d0d0d",
+                      "accent": "#455acc"
+                    },
+                    "font": "Inter",
+                    "senderName": "Northwind",
+                    "supportEmail": "support@northwind-operator.example",
+                    "texts": {
+                      "welcomeTitle": "Set up your business",
+                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
+                      "helpLine": "For help, reply to any email from us.",
+                      "doneBody": "We have your application. We will email you at each step."
+                    }
+                  },
+                  "publishedAt": "2026-11-09T14:05:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "brand"
+      },
+      "put": {
+        "operationId": "putBrand",
+        "summary": "Save the brand draft.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The saved draft.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The saved draft.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "draft": {
+                    "displayName": "Northwind",
+                    "logo": "3f9c2a71b0d4e6a8.png",
+                    "colors": {
+                      "primary": "#02213b",
+                      "primaryText": "#ffffff",
+                      "background": "#fcfcfc",
+                      "text": "#0d0d0d",
+                      "accent": "#455acc"
+                    },
+                    "font": "Inter",
+                    "senderName": "Northwind",
+                    "supportEmail": "support@northwind-operator.example",
+                    "texts": {
+                      "welcomeTitle": "Set up your business",
+                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
+                      "helpLine": "For help, reply to any email from us.",
+                      "doneBody": "We have your application. We will email you at each step."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "save_brand",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "displayName": {
+                    "description": "At most 60 characters."
+                  },
+                  "colors": {
+                    "description": "primary, primaryText, background, text, accent: hex colours. Text contrast is at least 4.5:1."
+                  },
+                  "font": {
+                    "description": "Inter."
+                  },
+                  "senderName": {
+                    "description": "At most 60 characters."
+                  },
+                  "supportEmail": {
+                    "description": "An email address, or null for none. An empty string also reads as none."
+                  },
+                  "texts": {
+                    "description": "welcomeTitle (60), welcomeBody (300), helpLine (200), doneBody (300)."
+                  },
+                  "logo": {
+                    "description": "Optional. A stored logo id (the brand's logo field), or null or an empty string for no logo. Absent: the draft keeps its current logo."
+                  }
+                }
+              },
+              "example": {
+                "displayName": "Northwind",
+                "colors": {
+                  "primary": "#02213b",
+                  "primaryText": "#ffffff",
+                  "background": "#fcfcfc",
+                  "text": "#0d0d0d",
+                  "accent": "#455acc"
+                },
+                "font": "Inter",
+                "senderName": "Northwind",
+                "supportEmail": "support@northwind.example",
+                "texts": {
+                  "welcomeTitle": "Set up your business",
+                  "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
+                  "helpLine": "For help, reply to any email from us.",
+                  "doneBody": "We have your application. We will email you at each step."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/brand/logo": {
+      "post": {
+        "operationId": "postBrandLogo",
+        "summary": "Upload the logo: PNG, JPEG or WebP, at most 200 KB and 1024 px. The body is JSON with Content-Type application/json, at most 300 KB.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The logo id, type, width and height, and the draft with the new logo.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The logo id, type, width and height, and the draft with the new logo.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "logo": "3f9c2a71b0d4e6a8.png",
+                  "type": "image/png",
+                  "width": 400,
+                  "height": 160,
+                  "draft": {
+                    "displayName": "Northwind",
+                    "logo": "3f9c2a71b0d4e6a8.png",
+                    "colors": {
+                      "primary": "#02213b",
+                      "primaryText": "#ffffff",
+                      "background": "#fcfcfc",
+                      "text": "#0d0d0d",
+                      "accent": "#455acc"
+                    },
+                    "font": "Inter",
+                    "senderName": "Northwind",
+                    "supportEmail": "support@northwind-operator.example",
+                    "texts": {
+                      "welcomeTitle": "Set up your business",
+                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
+                      "helpLine": "For help, reply to any email from us.",
+                      "doneBody": "We have your application. We will email you at each step."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "upload_logo",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "description": "`image/png`, `image/jpeg` or `image/webp`. The file's own bytes decide its type."
+                  },
+                  "data": {
+                    "description": "The image file in base64."
+                  }
+                }
+              },
+              "example": {
+                "type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/qBc3HwAAAABJRU5ErkJggg=="
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getBrandLogo",
+        "summary": "Read one of the operator's logos: the draft's, the published one's or the last upload.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: The image file.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "The image file.",
+            "content": {
+              "image/png": {},
+              "image/jpeg": {},
+              "image/webp": {}
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "logo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "The logo id, the brand's logo field.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/brand/logo/{id}": {
+      "get": {
+        "operationId": "getBrandLogoId",
+        "summary": "Read a published logo by its id, the brand's logo field.",
+        "description": "No caller is needed.\n\nAnswer: The image file.",
+        "x-crx-role": "none",
+        "responses": {
+          "200": {
+            "description": "The image file.",
+            "content": {
+              "image/png": {},
+              "image/jpeg": {},
+              "image/webp": {}
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          }
+        },
+        "x-crx-sdk": "published_logo",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/brand/publish": {
+      "post": {
+        "operationId": "postBrandPublish",
+        "summary": "Publish the draft.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The published brand and publishedAt.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The published brand and publishedAt.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "published": {
+                    "displayName": "Northwind",
+                    "logo": "3f9c2a71b0d4e6a8.png",
+                    "colors": {
+                      "primary": "#02213b",
+                      "primaryText": "#ffffff",
+                      "background": "#fcfcfc",
+                      "text": "#0d0d0d",
+                      "accent": "#455acc"
+                    },
+                    "font": "Inter",
+                    "senderName": "Northwind",
+                    "supportEmail": "support@northwind-operator.example",
+                    "texts": {
+                      "welcomeTitle": "Set up your business",
+                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
+                      "helpLine": "For help, reply to any email from us.",
+                      "doneBody": "We have your application. We will email you at each step."
+                    }
+                  },
+                  "publishedAt": "2026-11-09T14:05:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "publish_brand"
+      }
+    },
+    "/keys": {
+      "get": {
+        "operationId": "getKeys",
+        "summary": "List API keys.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: Keys: id, name, scope, publicKey, createdAt, lastUsedAt, revokedAt, by.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "Keys: id, name, scope, publicKey, createdAt, lastUsedAt, revokedAt, by.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "postKeys",
+        "summary": "Add an API key from an Ed25519 public key.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: The key, with its id.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The key, with its id.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "description": "1 to 60 characters."
+                  },
+                  "scope": {
+                    "description": "`read`, `write` or `admin`."
+                  },
+                  "publicKey": {
+                    "description": "The Ed25519 public key: 32 bytes in base64, or a PEM public key."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/keys/{id}/revoke": {
+      "post": {
+        "operationId": "postKeysIdRevoke",
+        "summary": "Revoke an API key. Requests signed with it are refused.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: The revoked key.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The revoked key.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/stepup": {
+      "get": {
+        "operationId": "getStepup",
+        "summary": "Read whether this session holds a fresh confirmation.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: `fresh`, and `until`: the end of the confirmation (ISO), or null.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "`fresh`, and `until`: the end of the confirmation (ISO), or null.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      }
+    },
+    "/stepup/code": {
+      "post": {
+        "operationId": "postStepupCode",
+        "summary": "Send a confirmation code to the signed-in address. At most 3 codes in 15 minutes.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: `codeId`, `sentTo` and `endsAt`. The code works once and ends in 10 minutes.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "`codeId`, `sentTo` and `endsAt`. The code works once and ends in 10 minutes.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      }
+    },
+    "/stepup/verify": {
+      "post": {
+        "operationId": "postStepupVerify",
+        "summary": "Confirm the code. Changes that need a confirmation pass for 5 minutes.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: `until`: the end of the confirmation (ISO).",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "`until`: the end of the confirmation (ISO).",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "codeId": {
+                    "description": "The codeId of POST /stepup/code."
+                  },
+                  "code": {
+                    "description": "The 6 digits of the mail."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/open": {
+      "post": {
+        "operationId": "postOpen",
+        "summary": "Open a test operator's console, or close it. CRX staff only.",
+        "description": "CRX staff session only; API keys and operator members are refused.\n\nAnswer: `open`: the desk opened, or null.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "`open`: the desk opened, or null.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-staff": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "as": {
+                    "description": "The test operator's desk, or null to close."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks": {
+      "get": {
+        "operationId": "getWebhooks",
+        "summary": "List webhook endpoints.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: Endpoints: id, url, events, description, createdAt, by.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "Endpoints: id, url, events, description, createdAt, by.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "webhooks": [
+                    {
+                      "id": "wh_5b8e1d3f7a9c2e40",
+                      "url": "https://hooks.northwind-operator.example/crx",
+                      "events": [
+                        "invite.sent",
+                        "kyb.case.updated"
+                      ],
+                      "description": "KYB updates",
+                      "createdAt": "2026-11-09T14:05:00.000Z",
+                      "by": "ana@northwind-operator.example"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "webhooks"
+      },
+      "post": {
+        "operationId": "postWebhooks",
+        "summary": "Add a webhook endpoint.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The endpoint and its signing secret. The secret is in this answer only.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The endpoint and its signing secret. The secret is in this answer only.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "webhook": {
+                    "id": "wh_5b8e1d3f7a9c2e40",
+                    "url": "https://hooks.northwind-operator.example/crx",
+                    "events": [
+                      "invite.sent",
+                      "kyb.case.updated"
+                    ],
+                    "description": "KYB updates",
+                    "createdAt": "2026-11-09T14:05:00.000Z",
+                    "by": "ana@northwind-operator.example"
+                  },
+                  "secret": "whsec_example_shown_once"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "add_webhook",
+        "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "description": "An https URL on a public address. Redirects are not followed."
+                  },
+                  "events": {
+                    "description": "One or more of invite.sent, invite.resent, invite.revoked, kyb.case.updated, trade.opened, trade.closed, ping."
+                  },
+                  "description": {
+                    "description": "Optional, at most 120 characters."
+                  }
+                }
+              },
+              "example": {
+                "url": "https://hooks.northwind.example/crx",
+                "events": [
+                  "kyb.case.updated",
+                  "invite.sent"
+                ],
+                "description": "KYB updates"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/{id}/delete": {
+      "post": {
+        "operationId": "postWebhooksIdDelete",
+        "summary": "Delete a webhook endpoint. Pending retries stop.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The deleted endpoint's id.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The deleted endpoint's id.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "wh_5b8e1d3f7a9c2e40"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "delete_webhook",
+        "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/webhooks/{id}/test": {
+      "post": {
+        "operationId": "postWebhooksIdTest",
+        "summary": "Send a ping event to one endpoint, once.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The delivery attempt.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The delivery attempt.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "delivery": {
+                    "id": "dlv_1a3c5e7f9b2d4f60",
+                    "at": "2026-11-09T14:05:00.000Z",
+                    "webhookId": "wh_5b8e1d3f7a9c2e40",
+                    "eventId": "evt_7e9a1c3b5d2f4a68",
+                    "type": "ping",
+                    "attempt": 1,
+                    "status": "succeeded",
+                    "responseStatus": 200,
+                    "error": null,
+                    "nextAttemptAt": null
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "test_webhook",
+        "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/webhooks/{id}/deliveries": {
+      "get": {
+        "operationId": "getWebhooksIdDeliveries",
+        "summary": "List an endpoint's delivery attempts, newest first.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: Deliveries: id, eventId, type, attempt, status, responseStatus, error, at, nextAttemptAt.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "Deliveries: id, eventId, type, attempt, status, responseStatus, error, at, nextAttemptAt.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "deliveries": [
+                    {
+                      "id": "dlv_1a3c5e7f9b2d4f60",
+                      "at": "2026-11-09T14:05:00.000Z",
+                      "webhookId": "wh_5b8e1d3f7a9c2e40",
+                      "eventId": "evt_7e9a1c3b5d2f4a68",
+                      "type": "ping",
+                      "attempt": 1,
+                      "status": "succeeded",
+                      "responseStatus": 200,
+                      "error": null,
+                      "nextAttemptAt": null
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "admin",
+        "x-crx-sdk": "webhook_deliveries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/audit": {
+      "get": {
+        "operationId": "getAudit",
+        "summary": "Read the audit log.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Rows: at, actor, via, action, target, result, detail.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "Rows: at, actor, via, action, target, result, detail.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "rows": [
+                    {
+                      "at": "2026-11-09T14:05:00.000Z",
+                      "requestId": "req_6b0d2f4a8c1e3a57",
+                      "operator": "northwind-operator.example",
+                      "actor": "mk_4f1a9c0e2b7d3a55",
+                      "via": "api",
+                      "action": "invite.create",
+                      "target": "invite:inv_8d2f4a6c1e3b5a70",
+                      "result": "ok",
+                      "detail": {
+                        "kind": "person",
+                        "firmId": "harbor-trade.test"
+                      }
+                    }
+                  ]
+                }
+              },
+              "text/csv": {}
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-sdk": "audit",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "ISO time, inclusive.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "ISO time, exclusive.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "description": "One action. Repeat it to read several.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "required": false,
+            "description": "One actor.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "description": "`csv` for a CSV file.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most rows to answer, 1 to 5000. Default: 500.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenapiJson",
+        "summary": "Read this API as an OpenAPI 3.1 document. Served on the manage host alone.",
+        "description": "No caller is needed.\n\nAnswer: The OpenAPI document.",
+        "x-crx-role": "none",
+        "responses": {
+          "200": {
+            "description": "The OpenAPI document.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          }
+        },
+        "x-crx-sdk": "openapi",
+        "security": []
+      }
+    }
+  }
+}
