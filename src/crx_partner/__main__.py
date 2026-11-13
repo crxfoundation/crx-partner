@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "keygen":
             public_key = make_key_file(args.out)
-            print(f"Private key written to {args.out}. Paste this public key under API keys: Create a key, Paste a public key.", file=sys.stderr)
+            print(f"Private key written to {args.out}. The console makes each API key in the browser and takes no public key: create the key under API keys and download it.", file=sys.stderr)
             print(public_key)
             return 0
         client = Manage(base_url=args.base_url)

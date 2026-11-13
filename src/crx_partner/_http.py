@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import random
 import secrets
 import threading
 import time
@@ -15,10 +16,10 @@ from urllib.parse import quote, urlencode, urlsplit
 import requests
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from .errors import STATUS_CODES, ApiError, ConfigError, NetworkError, clean
+from .errors import DETAIL_FIELDS, STATUS_CODES, ApiError, ConfigError, NetworkError, clean
 
 USER_AGENT = "crx-partner-python"
-GET_RETRY_PAUSE = 0.5  # seconds before the single GET retry
+GET_RETRY_PAUSE = (0.5, 1.0)  # seconds: the single GET retry waits a random time in this range
 GET_RETRIED = (502, 503, 504)  # statuses that send a GET once more
 _STAMP_LOCK = threading.Lock()
 _last_stamp = 0
@@ -108,10 +109,13 @@ class Transport:
             "CRX-Key-Id": self.key_id, "CRX-Timestamp": ts, "CRX-Nonce": nonce, "CRX-Signature": signature,
         })
 
-    def _send(self, method: str, url: str, raw: bytes | None, auth: bool, idem: str | None) -> requests.Response:
-        headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
+    def _send(
+        self, method: str, url: str, raw: bytes | None, auth: bool, idem: str | None, kind: str = "application/json",
+        extra: Mapping[str, str] | None = None,
+    ) -> requests.Response:
+        headers = {"Accept": "application/json", "User-Agent": USER_AGENT, **(extra or {})}
         if raw is not None:
-            headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = kind
         if idem is not None:
             headers["Idempotency-Key"] = idem
         prepared = self.session.prepare_request(requests.Request(method, url, headers=headers, data=raw))
@@ -129,19 +133,32 @@ class Transport:
 
     def call(
         self, method: str, route: str, *, params: Mapping[str, Any] | None = None,
-        query: Mapping[str, Any] | None = None, body: Mapping[str, Any] | None = None, auth: bool = True,
-        idempotency_key: str | None = None,
+        query: Mapping[str, Any] | None = None, headers: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | None = None, data: bytes | None = None, content_type: str | None = None,
+        auth: bool = True, idempotency_key: str | None = None,
     ) -> Any:
         """Send one call and return its answer: a dict for JSON, str for CSV or text, bytes for a file.
 
-        ``body`` is sent as JSON with its None fields left out; with no ``body``, nothing is sent. A GET with
-        no answer, or a 502, 503 or 504, is sent once more. A write is sent once, with an Idempotency-Key
+        ``body`` is sent as JSON with its None fields left out; with no ``body``, nothing is sent. ``data`` is
+        sent as it is, with ``content_type``: a file upload; the signature hashes those bytes. ``headers`` adds
+        request headers; a missing one raises ConfigError. A GET with no answer, or a 502, 503 or 504, is sent
+        once more after a random pause of 0.5 to 1 s. A write is sent once, with an Idempotency-Key
         (``idempotency_key``, or a new one).
         """
         method = method.upper()
         url = self.url(route, params, query)
+        extra: dict[str, str] = {}
+        for name, value in (headers or {}).items():
+            if value is None or value == "":
+                raise ConfigError(f"the header {name} is missing")
+            extra[name] = str(value)
         raw = None
-        if body is not None:
+        kind = "application/json"
+        if data is not None:
+            if not isinstance(data, (bytes, bytearray)) or not content_type:
+                raise ConfigError("an upload needs data as bytes and its content_type")
+            raw, kind = bytes(data), str(content_type)
+        elif body is not None:
             raw = json.dumps({k: v for k, v in body.items() if v is not None},
                              separators=(",", ":")).encode()
         write = method != "GET"
@@ -150,14 +167,14 @@ class Transport:
         for attempt in range(tries):
             last = attempt == tries - 1
             try:
-                r = self._send(method, url, raw, auth, idem)
+                r = self._send(method, url, raw, auth, idem, kind, extra)
             except NetworkError:
                 if last:
                     raise
-                self.sleep(GET_RETRY_PAUSE)
+                self.sleep(random.uniform(*GET_RETRY_PAUSE))
                 continue
             if r.status_code in GET_RETRIED and not last:
-                self.sleep(GET_RETRY_PAUSE)
+                self.sleep(random.uniform(*GET_RETRY_PAUSE))
                 continue
             return answer_of(r)
         raise AssertionError("unreachable")
@@ -186,7 +203,10 @@ def answer_of(r: requests.Response) -> Any:
             err = None
     if isinstance(err, dict) and isinstance(err.get("code"), str):
         field = err.get("field")
+        reason = err.get("reason")
+        details = {k: err[k] for k in DETAIL_FIELDS if k in err}
         raise ApiError(r.status_code, err["code"], str(err.get("message") or ""),
-                       field if isinstance(field, str) else None, request_id)
+                       field if isinstance(field, str) else None, request_id,
+                       reason if isinstance(reason, str) else None, details)
     code = STATUS_CODES.get(r.status_code, "unavailable" if r.status_code >= 500 else "bad_answer")
     raise ApiError(r.status_code, code, f"HTTP {r.status_code} from {host_of(r.url or '')}", request_id=request_id)

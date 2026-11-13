@@ -17,7 +17,7 @@ OPEN_TO_OTHERS = "the key file is open to other users; run chmod 600 on it"
 
 
 def public_key_b64(key: Ed25519PrivateKey) -> str:
-    """Return the public key as base64 of its 32 raw bytes, the form the console takes."""
+    """Return the public key as base64 of its 32 raw bytes."""
     raw = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     return base64.b64encode(raw).decode()
 

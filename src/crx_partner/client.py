@@ -10,7 +10,7 @@ import requests
 
 from ._http import Transport, host_of
 from ._keys import load_key_file, public_key_b64
-from ._ops import ManageOps
+from ._ops import ManageDeprecatedOps, ManageOps
 from .errors import ConfigError
 
 ENV_KEY_ID = "CRX_PARTNER_KEY_ID"
@@ -72,15 +72,16 @@ class _Client:
 
     def _call(
         self, method: str, route: str, *, params: Mapping[str, Any] | None = None,
-        query: Mapping[str, Any] | None = None, body: Mapping[str, Any] | None = None, auth: bool = True,
-        idempotency_key: str | None = None,
+        query: Mapping[str, Any] | None = None, headers: Mapping[str, Any] | None = None,
+        body: Mapping[str, Any] | None = None, data: bytes | None = None, content_type: str | None = None,
+        auth: bool = True, idempotency_key: str | None = None,
     ) -> Any:
-        return self._t.call(method, route, params=params, query=query, body=body, auth=auth,
-                            idempotency_key=idempotency_key)
+        return self._t.call(method, route, params=params, query=query, headers=headers, body=body, data=data,
+                            content_type=content_type, auth=auth, idempotency_key=idempotency_key)
 
 
-class Manage(_Client, ManageOps):
-    """The Manage API: the operator console's clients, invites, team, brand, webhooks and audit log."""
+class Manage(_Client, ManageOps, ManageDeprecatedOps):
+    """The Manage API: the operator console's clients, invites, KYB cases, team, webhooks and audit log."""
 
     realm = "manage"
     api_name = "Manage API"

@@ -90,8 +90,10 @@ class ManageOps:
         `closed` or `refused`), openedAt, closedAt, and pnlUsd, the result the client's desk shows or null.
         Null where the client's account holds no value: side (a leg whose side the account does not show),
         rate, valueDate (a refused trade), openedAt (a trade still being sent), closedAt (not closed),
-        notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). A client
-        whose account data is not open to the operator answers `{available: false}` and no other field.
+        notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). The list
+        holds every open and pending trade and the most recent closed trades. `truncated` is true when older
+        closed trades exist and are not listed. A client whose account data is not open to the operator
+        answers `{available: false}` and no other field.
 
         Args:
             status: `open`, `closed` or `all`. Default: `all`. `open` leaves out `pending` and `closed` leaves
@@ -152,7 +154,7 @@ class ManageOps:
     def resend_invite(self, id: str, *, idempotency_key: str | None = None) -> Any:
         """Issue a new link. The previous link stops working.
 
-        Answer (dict): The invite with its new link.
+        Answer (dict): The invite. A person invite carries its new link.
 
         Args:
             idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
@@ -171,102 +173,256 @@ class ManageOps:
         """
         return self._call("POST", "/invites/{id}/revoke", params={"id": id}, idempotency_key=idempotency_key)
 
-    def brand(self) -> Any:
-        """Read the draft and the published brand.
+    def kyb_fields(self) -> Any:
+        """List the fields and documents a KYB case takes, and the countries CRX onboards.
 
-        Answer (dict): Draft, published and publishedAt.
+        Answer (dict): `fields`: key, section, type (`string`, `boolean`, `number` or `choice`) and label,
+        with choices (each a `value` and its `label`), maxLength, format and help (when the field applies)
+        where they apply. `sections`: business, eligibility, people, ownership and documents, in order.
+        `countries`: the countries a case may name, ISO 3166-1 alpha-2. `documents`: each document a case may
+        ask: key (the CRX-Requirement value of its upload), label and help (when CRX asks it).
         """
-        return self._call("GET", "/brand")
+        return self._call("GET", "/kyb/fields")
 
-    def save_brand(
-        self, *, display_name: Any = None, colors: Any = None, font: Any = None, sender_name: Any = None,
-        support_email: Any = None, texts: Any = None, logo: Any = None, idempotency_key: str | None = None
+    def kyb_cases(self, *, after: Any = None, limit: Any = None) -> Any:
+        """List the KYB cases you opened through the API, newest first.
+
+        Answer (dict): `data`: one item a case: caseId, externalId, firmId, state, version, returns and
+        updatedAt. `hasMore`, and `nextCursor`: the cursor of the next page, or null. GET /kyb/cases/{caseId}
+        reads a case in full.
+
+        Args:
+            after: The `nextCursor` value of the previous answer: the page after it.
+            limit: The most cases to answer, 1 to 100. Default: 20.
+        """
+        return self._call("GET", "/kyb/cases", query={"after": after, "limit": limit})
+
+    def kyb_create_case(
+        self, *, external_id: Any = None, firm_name: Any = None, country: Any = None, lei: Any = None,
+        registration_number: Any = None, contact: Any = None, idempotency_key: str | None = None
     ) -> Any:
-        """Save the brand draft.
+        """Open a KYB case for a client firm.
 
-        Answer (dict): The saved draft.
-
-        Args:
-            display_name: At most 60 characters.
-            colors: primary, primaryText, background, text, accent: hex colours. Text contrast is at least
-                4.5:1.
-            font: Inter.
-            sender_name: At most 60 characters.
-            support_email: An email address, or null for none. An empty string also reads as none. None leaves
-                the field out; pass '' (an empty string) for none.
-            texts: welcomeTitle (60), welcomeBody (300), helpLine (200), doneBody (300).
-            logo: Optional. A stored logo id (the brand's logo field), or null or an empty string for no logo.
-                Absent: the draft keeps its current logo. None leaves the field out; pass '' (an empty string)
-                for none.
-            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
-                answer again. Default: a new key.
-        """
-        return self._call(
-            "PUT",
-            "/brand",
-            body={
-                "displayName": display_name,
-                "colors": colors,
-                "font": font,
-                "senderName": sender_name,
-                "supportEmail": support_email,
-                "texts": texts,
-                "logo": logo,
-            },
-            idempotency_key=idempotency_key,
-        )
-
-    def upload_logo(self, *, type: Any = None, data: Any = None, idempotency_key: str | None = None) -> Any:
-        """Upload the logo: PNG, JPEG or WebP, at most 200 KB and 1024 px. The body is JSON with Content-Type
-        application/json, at most 300 KB.
-
-        Answer (dict): The logo id, type, width and height, and the draft with the new logo.
+        Answer (dict): The case.
 
         Args:
-            type: `image/png`, `image/jpeg` or `image/webp`. The file's own bytes decide its type.
-            data: The image file in base64.
+            external_id: Optional. Your own id for the client, unique among your cases, at most 100
+                characters.
+            firm_name: The client firm's legal name.
+            country: The country of registration: ISO 3166-1 alpha-2, one of `countries` of GET /kyb/fields,
+                for example `GB`.
+            lei: Optional. The firm's LEI: 20 characters.
+            registration_number: Optional. The firm's registration number.
+            contact: The client's contact: `name` and `email`, a company address. The client firm is the
+                address's firm.
             idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
                 answer again. Default: a new key.
         """
         return self._call(
             "POST",
-            "/brand/logo",
-            body={"type": type, "data": data},
+            "/kyb/cases",
+            body={
+                "externalId": external_id,
+                "firmName": firm_name,
+                "country": country,
+                "lei": lei,
+                "registrationNumber": registration_number,
+                "contact": contact,
+            },
             idempotency_key=idempotency_key,
         )
 
-    def logo(self, *, id: Any = None) -> Any:
-        """Read one of the operator's logos: the draft's, the published one's or the last upload.
+    def kyb_case(self, case_id: str) -> Any:
+        """Read one KYB case: its state, its steps, what is due, its people and its documents.
 
-        Answer (bytes): The image file.
+        Answer (dict): The case: caseId, externalId, firmId (the client firm, as GET /clients/{firmId} names
+        it, or null), state (`preparing`, `in_progress`, `with_crx`, `approved`, `declined` or `closed`;
+        `invited` for clients CRX invites: an API case goes from `preparing` to `in_progress`), version,
+        returns (the count of CRX's requests for more information so far), createdAt, updatedAt, firmName,
+        country, steps (key, and state: `not_started`, `current`, `waiting` or `done`), requirements (`due`:
+        key, section, code and message, and sections on `crx_request`; `waiting`: who, code and message, and
+        personKey when the item names a person), people (personKey, roles, the ID check's state and the
+        signature's state), documents, and decision (outcome and decidedAt, or null). `version` rises by 1 at
+        each change of the case.
+        """
+        return self._call("GET", "/kyb/cases/{caseId}", params={"caseId": case_id})
+
+    def kyb_save_answers(
+        self, case_id: str, *, fields: Any = None, idempotency_key: str | None = None
+    ) -> Any:
+        """Save answers on a case. A field given as null is cleared.
+
+        Answer (dict): The case.
 
         Args:
-            id: The logo id, the brand's logo field.
+            fields: An object: a field key of GET /kyb/fields → its value, or null to clear it. None leaves
+                the field out; pass '' (an empty string) for none.
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
         """
-        return self._call("GET", "/brand/logo", query={"id": id})
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/answers",
+            params={"caseId": case_id},
+            body={"fields": fields},
+            idempotency_key=idempotency_key,
+        )
 
-    def published_logo(self, id: str) -> Any:
-        """Read a published logo by its id, the brand's logo field.
+    def kyb_confirm_section(self, case_id: str, section: str, *, idempotency_key: str | None = None) -> Any:
+        """Confirm a section of a case: business, eligibility, people or ownership.
 
-        Answer (bytes): The image file.
-        """
-        return self._call("GET", "/brand/logo/{id}", params={"id": id}, auth=False)
-
-    def publish_brand(self, *, idempotency_key: str | None = None) -> Any:
-        """Publish the draft.
-
-        Answer (dict): The published brand and publishedAt.
+        Answer (dict): The case.
 
         Args:
             idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
                 answer again. Default: a new key.
         """
-        return self._call("POST", "/brand/publish", idempotency_key=idempotency_key)
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/sections/{section}/confirm",
+            params={"caseId": case_id, "section": section},
+            idempotency_key=idempotency_key,
+        )
+
+    def kyb_upload_document(
+        self, case_id: str, *, data: bytes, content_type: str, filename: str, requirement: str,
+        idempotency_key: str | None = None
+    ) -> Any:
+        """Upload one document to a case: PDF, PNG or JPEG, at most 10 MB.
+
+        Answer (dict): The document: documentId, requirement, filename, contentType, size, sha256 and
+        uploadedAt.
+
+        Args:
+            data: The file's bytes.
+            content_type: The file's type: application/pdf, image/png or image/jpeg.
+            filename: The file name: 1 to 200 characters, with no / or \\.
+            requirement: The requirement the file meets: the `key` of a document item the case lists as due.
+                `documents` of GET /kyb/fields names each.
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/documents",
+            params={"caseId": case_id},
+            headers={"CRX-Filename": filename, "CRX-Requirement": requirement},
+            data=data,
+            content_type=content_type,
+            idempotency_key=idempotency_key,
+        )
+
+    def kyb_remove_document(
+        self, case_id: str, document_id: str, *, idempotency_key: str | None = None
+    ) -> Any:
+        """Remove a document from a case. CRX keeps the file on record.
+
+        Answer (dict): The case.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/documents/{documentId}/remove",
+            params={"caseId": case_id, "documentId": document_id},
+            idempotency_key=idempotency_key,
+        )
+
+    def kyb_documents_done(self, case_id: str, *, idempotency_key: str | None = None) -> Any:
+        """Mark the documents step of a case done.
+
+        Answer (dict): The case.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/documents/done",
+            params={"caseId": case_id},
+            idempotency_key=idempotency_key,
+        )
+
+    def kyb_id_check_link(self, case_id: str, person_key: str, *, idempotency_key: str | None = None) -> Any:
+        """Get a link to a person's ID check, on a CRX page. The person's previous link stops working.
+
+        Answer (dict): `url`, the link, and `expiresAt`.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/people/{personKey}/id-check-link",
+            params={"caseId": case_id, "personKey": person_key},
+            idempotency_key=idempotency_key,
+        )
+
+    def kyb_set_wallet(
+        self, case_id: str, *, type: Any = None, custody: Any = None, custodian: Any = None,
+        idempotency_key: str | None = None
+    ) -> Any:
+        """Answer the wallet step of a case: the client adds its wallet in Discover.
+
+        Answer (dict): The case.
+
+        Args:
+            type: `none`: no wallet address on the case; the client adds the wallet in Discover.
+            custody: Optional. How the client holds its assets: `fireblocks`, `bitgo`, `other` (with
+                custodian) or `self_hosted`.
+            custodian: Optional. With custody `other`: the custodian's name.
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/wallet",
+            params={"caseId": case_id},
+            body={"type": type, "custody": custody, "custodian": custodian},
+            idempotency_key=idempotency_key,
+        )
+
+    def kyb_submit(self, case_id: str, *, idempotency_key: str | None = None) -> Any:
+        """Send a case to CRX for review.
+
+        Answer (dict): The case.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/submit",
+            params={"caseId": case_id},
+            idempotency_key=idempotency_key,
+        )
+
+    def kyb_withdraw(self, case_id: str, *, idempotency_key: str | None = None) -> Any:
+        """Withdraw a case before CRX decides.
+
+        Answer (dict): The case.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/kyb/cases/{caseId}/withdraw",
+            params={"caseId": case_id},
+            idempotency_key=idempotency_key,
+        )
 
     def webhooks(self) -> Any:
         """List webhook endpoints.
 
-        Answer (dict): Endpoints: id, url, events, description, createdAt, by.
+        Answer (dict): Endpoints: id, url, events, description, keyId (the API key the endpoint belongs to,
+        else null), createdAt, by.
         """
         return self._call("GET", "/webhooks")
 
@@ -280,8 +436,9 @@ class ManageOps:
 
         Args:
             url: An https URL on a public address. Redirects are not followed.
-            events: One or more of invite.sent, invite.resent, invite.revoked, kyb.case.updated, trade.opened,
-                trade.closed, ping.
+            events: One or more of invite.sent, invite.resent, invite.revoked, kyb.case.updated,
+                kyb.case.created, kyb.case.changed, kyb.case.returned, kyb.case.decided, kyb.person.updated,
+                trade.opened, trade.closed, ping.
             description: Optional, at most 120 characters.
             idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
                 answer again. Default: a new key.
@@ -327,7 +484,7 @@ class ManageOps:
         self, *, from_: Any = None, to: Any = None, action: Any = None, actor: Any = None, format: Any = None,
         limit: Any = None
     ) -> Any:
-        """Read the audit log.
+        """Read the activity log.
 
         Answer (dict; str for format='csv'): Rows: at, actor, via, action, target, result, detail.
 
@@ -358,3 +515,72 @@ class ManageOps:
         Answer (dict): The OpenAPI document.
         """
         return self._call("GET", "/openapi.json", auth=False)
+
+
+class ManageDeprecatedOps:
+    """The deprecated 0.1.0 methods of crx_partner.Manage: each calls its 0.1.0 route."""
+
+    _call: Any
+
+    def brand(self) -> Any:
+        """Deprecated. Read the brand. The API refuses this call: the method raises ApiError."""
+        return self._call("GET", "/brand")
+
+    def save_brand(
+        self, *, display_name: Any = None, colors: Any = None, font: Any = None, sender_name: Any = None,
+        support_email: Any = None, texts: Any = None, logo: Any = None, idempotency_key: str | None = None
+    ) -> Any:
+        """Deprecated. Save the brand draft. The API refuses this call: the method raises ApiError.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "PUT",
+            "/brand",
+            body={
+                "displayName": display_name,
+                "colors": colors,
+                "font": font,
+                "senderName": sender_name,
+                "supportEmail": support_email,
+                "texts": texts,
+                "logo": logo,
+            },
+            idempotency_key=idempotency_key,
+        )
+
+    def upload_logo(self, *, type: Any = None, data: Any = None, idempotency_key: str | None = None) -> Any:
+        """Deprecated. Upload a logo. The API refuses this call: the method raises ApiError.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/brand/logo",
+            body={"type": type, "data": data},
+            idempotency_key=idempotency_key,
+        )
+
+    def logo(self, *, id: Any = None) -> Any:
+        """Deprecated. Read a logo of the operator. The API refuses this call: the method raises ApiError."""
+        return self._call("GET", "/brand/logo", query={"id": id})
+
+    def published_logo(self, id: str) -> Any:
+        """Deprecated. Read a published logo by its id, the brand's logo field.
+
+        Answer (bytes): The image file.
+        """
+        return self._call("GET", "/brand/logo/{id}", params={"id": id}, auth=False)
+
+    def publish_brand(self, *, idempotency_key: str | None = None) -> Any:
+        """Deprecated. Publish the brand draft. The API refuses this call: the method raises ApiError.
+
+        Args:
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call("POST", "/brand/publish", idempotency_key=idempotency_key)

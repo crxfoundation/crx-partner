@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.1 (12 Nov 2026)
+
+- A read with no answer, or a 502, 503 or 504, is sent once more after a random pause of 0.5 to 1 s. Before, the pause was 0.5 s. A read still goes at most twice, and a write once.
+- Deprecated: `brand()`, `logo()`, `published_logo()`, `save_brand()`, `upload_logo()` and `publish_brand()`, removed in 0.2.0 and 0.3.0, are back with their 0.1.0 arguments. Each calls its 0.1.0 route. `published_logo()` reads a published logo. The API refuses the other five: each raises `ApiError`, as on 0.1.0.
+
+## 0.3.0 (10 Nov 2026)
+
+- Removed `brand()`, `logo()` and `published_logo()`: the API no longer serves the brand to API keys.
+- Added the KYB methods, one per KYB route: `kyb_fields`, `kyb_cases`, `kyb_create_case`, `kyb_case`, `kyb_save_answers`, `kyb_confirm_section`, `kyb_upload_document`, `kyb_remove_document`, `kyb_documents_done`, `kyb_id_check_link`, `kyb_set_wallet`, `kyb_submit` and `kyb_withdraw`. `kyb_upload_document` sends the file's bytes with `content_type`; the signature hashes those bytes.
+- `ApiError` adds `reason` and `details` (`missing`, `caseId`, `documentId`) for a KYB refusal.
+
+## 0.2.0 (10 Nov 2026)
+
+- Removed `save_brand`, `upload_logo` and `publish_brand` (`PUT /brand`, `POST /brand/logo`, `POST /brand/publish`). CRX sets the brand of your clients' onboarding screens: contact CRX to change it.
+- `brand()` answers `published` and `publishedAt`. The `draft` field is gone.
+- A brand holds no `colors` and no `font`: every client onboarding screen keeps CRX's colours and font.
+- `logo(id=)` reads the published logo alone.
+- `python -m crx_partner keygen` has no use in the console: the console makes each key in the browser and takes no public key.
+
 ## 0.1.0 (9 Nov 2026)
 
 - First release. `crx_partner.Manage` calls the Manage API: one method per API route, made from the API's OpenAPI document.

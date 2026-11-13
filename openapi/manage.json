@@ -3,7 +3,7 @@
   "info": {
     "title": "CRX Manage API",
     "version": "1",
-    "description": "The operator console's API. Every console action is one of these routes.\n\nEvery request carries four headers: CRX-Key-Id, CRX-Timestamp (unix milliseconds), CRX-Nonce (16 to 64 characters of A-Z, a-z, 0-9, _ and -) and CRX-Signature.\n\nCRX-Signature is the base64 Ed25519 signature, made with the key's private key, of these six lines joined by a line feed, with no line feed at the end:\n\nCRX-MANAGE-V1, the method in capitals, the path with its query as sent (for example /api/v1/clients), the timestamp, the nonce, and the lowercase hex SHA-256 of the body (of the empty string when there is no body).\n\nA timestamp more than 120 seconds old or more than 5 seconds ahead, a nonce used before, an unknown or revoked key, or a bad signature answers 401. A key takes 60 requests a minute; past that, 429.\n\nWrites take a JSON body of at most 8 KB (the logo, 300 KB) and an optional Idempotency-Key header, kept 24 hours."
+    "description": "The operator console's API. Every console action is one of these routes.\n\nEvery request carries four headers: CRX-Key-Id, CRX-Timestamp (unix milliseconds), CRX-Nonce (16 to 64 characters of A-Z, a-z, 0-9, _ and -) and CRX-Signature.\n\nCRX-Signature is the base64 Ed25519 signature, made with the key's private key, of these six lines joined by a line feed, with no line feed at the end:\n\nCRX-MANAGE-V1, the method in capitals, the path with its query as sent (for example /api/v1/clients), the timestamp, the nonce, and the lowercase hex SHA-256 of the body (of the empty string when there is no body).\n\nA timestamp more than 120 seconds old or more than 5 seconds ahead, a nonce used before, an unknown or revoked key, or a bad signature answers 401. A key takes 60 requests a minute; past that, 429.\n\nAn API key holds a set of permissions (x-crx-permissions). Each operation a key may call names the one it needs (x-crx-permission); a call outside the key's set answers 403. A key made with a scope holds every permission of the operations its scope reaches (x-crx-scope).\n\nWrites take a JSON body of at most 8 KB and an optional Idempotency-Key header, kept 24 hours. POST /kyb/cases/{caseId}/documents takes the file's bytes, at most 10 MB. A KYB write that the case's state refuses answers 409 with `reason`: missing_requirements (with `missing`), case_locked, duplicate_external_id (with `caseId`), case_exists (with `caseId` when the case is yours), duplicate_document (with `documentId`), link_unavailable or no_wallet_step."
   },
   "servers": [
     {
@@ -77,6 +77,25 @@
               "field": {
                 "type": "string",
                 "description": "The body field the error is about."
+              },
+              "reason": {
+                "type": "string",
+                "description": "KYB routes: why a conflict refused the write. One of missing_requirements, case_locked, duplicate_external_id, case_exists, duplicate_document, link_unavailable, no_wallet_step."
+              },
+              "missing": {
+                "type": "array",
+                "description": "KYB routes, reason missing_requirements: the items still due, each with key, section, code and message, and sections on crx_request.",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "caseId": {
+                "type": "string",
+                "description": "KYB routes, reason duplicate_external_id: the case that holds the externalId; reason case_exists: the firm's case, when it is yours."
+              },
+              "documentId": {
+                "type": "string",
+                "description": "KYB routes, reason duplicate_document: the document already on the case."
               }
             }
           }
@@ -105,7 +124,7 @@
         }
       },
       "forbidden": {
-        "description": "The caller's role does not allow this request.",
+        "description": "The caller's role, or the key's permissions, do not allow this request.",
         "content": {
           "application/json": {
             "schema": {
@@ -187,6 +206,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "account.read",
         "x-crx-sdk": "me"
       }
     },
@@ -231,6 +251,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "team.read",
         "x-crx-sdk": "team"
       }
     },
@@ -275,6 +296,7 @@
           }
         },
         "x-crx-scope": "admin",
+        "x-crx-permission": "team.write",
         "x-crx-sdk": "set_team_role",
         "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
         "requestBody": {
@@ -286,6 +308,66 @@
                 "properties": {
                   "email": {
                     "description": "The member's email."
+                  },
+                  "role": {
+                    "description": "`admin`, `reviewer` or `viewer`."
+                  }
+                }
+              },
+              "example": {
+                "email": "ana.ruiz@northwind.example",
+                "role": "reviewer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/team/invite": {
+      "post": {
+        "operationId": "postTeamInvite",
+        "summary": "Invite a person onto the firm's team. You send the person the message; they sign in with their address and pass an ID check before Manage opens.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: The address, the console role, `mail` (`none`) and `message`: the text to send, with the console's sign-in address. It carries no sign-in link.",
+        "x-crx-role": "admin",
+        "responses": {
+          "200": {
+            "description": "The address, the console role, `mail` (`none`) and `message`: the text to send, with the console's sign-in address. It carries no sign-in link.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "description": "The person's email, at the firm's domain."
                   },
                   "role": {
                     "description": "`admin`, `reviewer` or `viewer`."
@@ -340,6 +422,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "clients.read",
         "x-crx-sdk": "clients"
       }
     },
@@ -428,6 +511,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "clients.read",
         "x-crx-sdk": "client",
         "parameters": [
           {
@@ -491,6 +575,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "accounts.read",
         "x-crx-sdk": "client_accounts",
         "parameters": [
           {
@@ -543,6 +628,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "accounts.read",
         "x-crx-sdk": "client_balances",
         "parameters": [
           {
@@ -560,11 +646,11 @@
       "get": {
         "operationId": "getClientsFirmIdTrades",
         "summary": "List one client's trades, newest first.",
-        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: `{available: true}` with trades and `next`, the cursor of the next page or null. A trade: id, pair, side, notional, notionalCurrency, rate, valueDate, status (`pending`, `open`, `closed` or `refused`), openedAt, closedAt, and pnlUsd, the result the client's desk shows or null. Null where the client's account holds no value: side (a leg whose side the account does not show), rate, valueDate (a refused trade), openedAt (a trade still being sent), closedAt (not closed), notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: `{available: true}` with trades and `next`, the cursor of the next page or null. A trade: id, pair, side, notional, notionalCurrency, rate, valueDate, status (`pending`, `open`, `closed` or `refused`), openedAt, closedAt, and pnlUsd, the result the client's desk shows or null. Null where the client's account holds no value: side (a leg whose side the account does not show), rate, valueDate (a refused trade), openedAt (a trade still being sent), closedAt (not closed), notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). The list holds every open and pending trade and the most recent closed trades. `truncated` is true when older closed trades exist and are not listed. A client whose account data is not open to the operator answers `{available: false}` and no other field.",
         "x-crx-role": "viewer",
         "responses": {
           "200": {
-            "description": "`{available: true}` with trades and `next`, the cursor of the next page or null. A trade: id, pair, side, notional, notionalCurrency, rate, valueDate, status (`pending`, `open`, `closed` or `refused`), openedAt, closedAt, and pnlUsd, the result the client's desk shows or null. Null where the client's account holds no value: side (a leg whose side the account does not show), rate, valueDate (a refused trade), openedAt (a trade still being sent), closedAt (not closed), notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). A client whose account data is not open to the operator answers `{available: false}` and no other field.",
+            "description": "`{available: true}` with trades and `next`, the cursor of the next page or null. A trade: id, pair, side, notional, notionalCurrency, rate, valueDate, status (`pending`, `open`, `closed` or `refused`), openedAt, closedAt, and pnlUsd, the result the client's desk shows or null. Null where the client's account holds no value: side (a leg whose side the account does not show), rate, valueDate (a refused trade), openedAt (a trade still being sent), closedAt (not closed), notionalCurrency (a pair that does not parse), pnlUsd (an open trade, or no fixing yet). The list holds every open and pending trade and the most recent closed trades. `truncated` is true when older closed trades exist and are not listed. A client whose account data is not open to the operator answers `{available: false}` and no other field.",
             "content": {
               "application/json": {
                 "example": {
@@ -597,7 +683,8 @@
                       "pnlUsd": "1250.00"
                     }
                   ],
-                  "next": null
+                  "next": null,
+                  "truncated": false
                 }
               }
             }
@@ -619,6 +706,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "accounts.read",
         "x-crx-sdk": "client_trades",
         "parameters": [
           {
@@ -668,6 +756,34 @@
         ]
       }
     },
+    "/summary": {
+      "get": {
+        "operationId": "getSummary",
+        "summary": "Read the clients' trade figures by month, by day and by period.",
+        "description": "Role: viewer. Console session only; API keys are refused.\n\nAnswer: `{available: true}` with months, days and periods. `months`, newest first: the current New York month back to the month of the oldest trade listed, 6 at the least and 60 at the most. A month: month (`YYYY-MM`), volumeUsd (the USD notional of the trades the clients opened in the month, at the cent), trades, clients (the clients that opened one), and unpriced (trades with no USD notional, left out of volumeUsd). `days`, oldest first: the last 365 New York days, today the last, one row a day with the same figures and day (`YYYY-MM-DD`) in place of month. `periods`: the last 7, 30, 90 and 365 New York days, today included, each with days (7, 30, 90 or 365) and the same figures; its clients counts a client once in the period. A trade counts on the New York day and in the month it opened. `partial`: clients whose account lists only their recent trades; `unread`: clients whose figures could not be read and are left out. With no client figures on file, `{available: false}` and no other field.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "`{available: true}` with months, days and periods. `months`, newest first: the current New York month back to the month of the oldest trade listed, 6 at the least and 60 at the most. A month: month (`YYYY-MM`), volumeUsd (the USD notional of the trades the clients opened in the month, at the cent), trades, clients (the clients that opened one), and unpriced (trades with no USD notional, left out of volumeUsd). `days`, oldest first: the last 365 New York days, today the last, one row a day with the same figures and day (`YYYY-MM-DD`) in place of month. `periods`: the last 7, 30, 90 and 365 New York days, today included, each with days (7, 30, 90 or 365) and the same figures; its clients counts a client once in the period. A trade counts on the New York day and in the month it opened. `partial`: clients whose account lists only their recent trades; `unread`: clients whose figures could not be read and are left out. With no client figures on file, `{available: false}` and no other field.",
+            "content": {
+              "application/json": {}
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      }
+    },
     "/invites": {
       "get": {
         "operationId": "getInvites",
@@ -710,6 +826,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "invites.read",
         "x-crx-sdk": "invites"
       },
       "post": {
@@ -787,6 +904,7 @@
           }
         },
         "x-crx-scope": "write",
+        "x-crx-permission": "invites.write",
         "x-crx-sdk": "invite",
         "requestBody": {
           "required": true,
@@ -833,11 +951,11 @@
       "post": {
         "operationId": "postInvitesIdResend",
         "summary": "Issue a new link. The previous link stops working.",
-        "description": "Role: reviewer. API key scope: write or higher.\n\nAnswer: The invite with its new link.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAnswer: The invite. A person invite carries its new link.",
         "x-crx-role": "reviewer",
         "responses": {
           "200": {
-            "description": "The invite with its new link.",
+            "description": "The invite. A person invite carries its new link.",
             "content": {
               "application/json": {
                 "example": {
@@ -881,6 +999,7 @@
           }
         },
         "x-crx-scope": "write",
+        "x-crx-permission": "invites.write",
         "x-crx-sdk": "resend_invite",
         "parameters": [
           {
@@ -946,6 +1065,7 @@
           }
         },
         "x-crx-scope": "write",
+        "x-crx-permission": "invites.write",
         "x-crx-sdk": "revoke_invite",
         "parameters": [
           {
@@ -959,59 +1079,73 @@
         ]
       }
     },
-    "/brand": {
+    "/kyb/fields": {
       "get": {
-        "operationId": "getBrand",
-        "summary": "Read the draft and the published brand.",
-        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Draft, published and publishedAt.",
+        "operationId": "getKybFields",
+        "summary": "List the fields and documents a KYB case takes, and the countries CRX onboards.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: `fields`: key, section, type (`string`, `boolean`, `number` or `choice`) and label, with choices (each a `value` and its `label`), maxLength, format and help (when the field applies) where they apply. `sections`: business, eligibility, people, ownership and documents, in order. `countries`: the countries a case may name, ISO 3166-1 alpha-2. `documents`: each document a case may ask: key (the CRX-Requirement value of its upload), label and help (when CRX asks it).",
         "x-crx-role": "viewer",
         "responses": {
           "200": {
-            "description": "Draft, published and publishedAt.",
+            "description": "`fields`: key, section, type (`string`, `boolean`, `number` or `choice`) and label, with choices (each a `value` and its `label`), maxLength, format and help (when the field applies) where they apply. `sections`: business, eligibility, people, ownership and documents, in order. `countries`: the countries a case may name, ISO 3166-1 alpha-2. `documents`: each document a case may ask: key (the CRX-Requirement value of its upload), label and help (when CRX asks it).",
             "content": {
               "application/json": {
                 "example": {
-                  "draft": {
-                    "displayName": "Northwind",
-                    "logo": "3f9c2a71b0d4e6a8.png",
-                    "colors": {
-                      "primary": "#02213b",
-                      "primaryText": "#ffffff",
-                      "background": "#fcfcfc",
-                      "text": "#0d0d0d",
-                      "accent": "#455acc"
+                  "fields": [
+                    {
+                      "key": "crx_registration_number",
+                      "section": "business",
+                      "type": "string",
+                      "label": "Registration number",
+                      "maxLength": 255
                     },
-                    "font": "Inter",
-                    "senderName": "Northwind",
-                    "supportEmail": "support@northwind-operator.example",
-                    "texts": {
-                      "welcomeTitle": "Set up your business",
-                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
-                      "helpLine": "For help, reply to any email from us.",
-                      "doneBody": "We have your application. We will email you at each step."
-                    }
-                  },
-                  "published": {
-                    "displayName": "Northwind",
-                    "logo": "3f9c2a71b0d4e6a8.png",
-                    "colors": {
-                      "primary": "#02213b",
-                      "primaryText": "#ffffff",
-                      "background": "#fcfcfc",
-                      "text": "#0d0d0d",
-                      "accent": "#455acc"
+                    {
+                      "key": "crx_pp_different",
+                      "section": "business",
+                      "type": "boolean",
+                      "label": "Principal place of business is different",
+                      "help": "true when the firm runs its business from an address other than its registered office."
                     },
-                    "font": "Inter",
-                    "senderName": "Northwind",
-                    "supportEmail": "support@northwind-operator.example",
-                    "texts": {
-                      "welcomeTitle": "Set up your business",
-                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
-                      "helpLine": "For help, reply to any email from us.",
-                      "doneBody": "We have your application. We will email you at each step."
+                    {
+                      "key": "crx_ecp_route",
+                      "section": "eligibility",
+                      "type": "choice",
+                      "label": "Eligibility route",
+                      "choices": [
+                        {
+                          "value": "assets",
+                          "label": "Total assets over $10 million"
+                        },
+                        {
+                          "value": "regulated",
+                          "label": "A regulated financial firm: bank, broker-dealer, FCM, insurer or investment company"
+                        }
+                      ]
                     }
-                  },
-                  "publishedAt": "2026-11-09T14:05:00.000Z"
+                  ],
+                  "sections": [
+                    "business",
+                    "eligibility",
+                    "people",
+                    "ownership",
+                    "documents"
+                  ],
+                  "countries": [
+                    "GB",
+                    "US"
+                  ],
+                  "documents": [
+                    {
+                      "key": "formation",
+                      "label": "Certificate of incorporation",
+                      "help": "The certificate the company register issued for the firm."
+                    },
+                    {
+                      "key": "tax_form",
+                      "label": "Tax form",
+                      "help": "A US firm: IRS Form W-9. A firm outside the US: IRS Form W-8BEN-E or W-8IMY."
+                    }
+                  ]
                 }
               }
             }
@@ -1027,151 +1161,35 @@
           }
         },
         "x-crx-scope": "read",
-        "x-crx-sdk": "brand"
-      },
-      "put": {
-        "operationId": "putBrand",
-        "summary": "Save the brand draft.",
-        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The saved draft.",
-        "x-crx-role": "admin",
-        "responses": {
-          "200": {
-            "description": "The saved draft.",
-            "content": {
-              "application/json": {
-                "example": {
-                  "draft": {
-                    "displayName": "Northwind",
-                    "logo": "3f9c2a71b0d4e6a8.png",
-                    "colors": {
-                      "primary": "#02213b",
-                      "primaryText": "#ffffff",
-                      "background": "#fcfcfc",
-                      "text": "#0d0d0d",
-                      "accent": "#455acc"
-                    },
-                    "font": "Inter",
-                    "senderName": "Northwind",
-                    "supportEmail": "support@northwind-operator.example",
-                    "texts": {
-                      "welcomeTitle": "Set up your business",
-                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
-                      "helpLine": "For help, reply to any email from us.",
-                      "doneBody": "We have your application. We will email you at each step."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/bad_request"
-          },
-          "401": {
-            "$ref": "#/components/responses/unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/forbidden"
-          },
-          "429": {
-            "$ref": "#/components/responses/rate_limited"
-          },
-          "503": {
-            "$ref": "#/components/responses/unavailable"
-          }
-        },
-        "x-crx-scope": "admin",
-        "x-crx-sdk": "save_brand",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "displayName": {
-                    "description": "At most 60 characters."
-                  },
-                  "colors": {
-                    "description": "primary, primaryText, background, text, accent: hex colours. Text contrast is at least 4.5:1."
-                  },
-                  "font": {
-                    "description": "Inter."
-                  },
-                  "senderName": {
-                    "description": "At most 60 characters."
-                  },
-                  "supportEmail": {
-                    "description": "An email address, or null for none. An empty string also reads as none."
-                  },
-                  "texts": {
-                    "description": "welcomeTitle (60), welcomeBody (300), helpLine (200), doneBody (300)."
-                  },
-                  "logo": {
-                    "description": "Optional. A stored logo id (the brand's logo field), or null or an empty string for no logo. Absent: the draft keeps its current logo."
-                  }
-                }
-              },
-              "example": {
-                "displayName": "Northwind",
-                "colors": {
-                  "primary": "#02213b",
-                  "primaryText": "#ffffff",
-                  "background": "#fcfcfc",
-                  "text": "#0d0d0d",
-                  "accent": "#455acc"
-                },
-                "font": "Inter",
-                "senderName": "Northwind",
-                "supportEmail": "support@northwind.example",
-                "texts": {
-                  "welcomeTitle": "Set up your business",
-                  "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
-                  "helpLine": "For help, reply to any email from us.",
-                  "doneBody": "We have your application. We will email you at each step."
-                }
-              }
-            }
-          }
-        }
+        "x-crx-permission": "kyb.read",
+        "x-crx-sdk": "kyb_fields"
       }
     },
-    "/brand/logo": {
-      "post": {
-        "operationId": "postBrandLogo",
-        "summary": "Upload the logo: PNG, JPEG or WebP, at most 200 KB and 1024 px. The body is JSON with Content-Type application/json, at most 300 KB.",
-        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The logo id, type, width and height, and the draft with the new logo.",
-        "x-crx-role": "admin",
+    "/kyb/cases": {
+      "get": {
+        "operationId": "getKybCases",
+        "summary": "List the KYB cases you opened through the API, newest first.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: `data`: one item a case: caseId, externalId, firmId, state, version, returns and updatedAt. `hasMore`, and `nextCursor`: the cursor of the next page, or null. GET /kyb/cases/{caseId} reads a case in full.",
+        "x-crx-role": "viewer",
         "responses": {
           "200": {
-            "description": "The logo id, type, width and height, and the draft with the new logo.",
+            "description": "`data`: one item a case: caseId, externalId, firmId, state, version, returns and updatedAt. `hasMore`, and `nextCursor`: the cursor of the next page, or null. GET /kyb/cases/{caseId} reads a case in full.",
             "content": {
               "application/json": {
                 "example": {
-                  "logo": "3f9c2a71b0d4e6a8.png",
-                  "type": "image/png",
-                  "width": 400,
-                  "height": 160,
-                  "draft": {
-                    "displayName": "Northwind",
-                    "logo": "3f9c2a71b0d4e6a8.png",
-                    "colors": {
-                      "primary": "#02213b",
-                      "primaryText": "#ffffff",
-                      "background": "#fcfcfc",
-                      "text": "#0d0d0d",
-                      "accent": "#455acc"
-                    },
-                    "font": "Inter",
-                    "senderName": "Northwind",
-                    "supportEmail": "support@northwind-operator.example",
-                    "texts": {
-                      "welcomeTitle": "Set up your business",
-                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
-                      "helpLine": "For help, reply to any email from us.",
-                      "doneBody": "We have your application. We will email you at each step."
+                  "data": [
+                    {
+                      "caseId": "case_Q2x8LmT4vR1nYp0a",
+                      "externalId": "client-4471",
+                      "firmId": "acme.example",
+                      "state": "in_progress",
+                      "version": 7,
+                      "returns": 0,
+                      "updatedAt": "2026-11-09T15:40:00.000Z"
                     }
-                  }
+                  ],
+                  "hasMore": false,
+                  "nextCursor": null
                 }
               }
             }
@@ -1182,9 +1200,6 @@
           "401": {
             "$ref": "#/components/responses/unauthorized"
           },
-          "403": {
-            "$ref": "#/components/responses/forbidden"
-          },
           "429": {
             "$ref": "#/components/responses/rate_limited"
           },
@@ -1192,136 +1207,110 @@
             "$ref": "#/components/responses/unavailable"
           }
         },
-        "x-crx-scope": "admin",
-        "x-crx-sdk": "upload_logo",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "description": "`image/png`, `image/jpeg` or `image/webp`. The file's own bytes decide its type."
-                  },
-                  "data": {
-                    "description": "The image file in base64."
-                  }
-                }
-              },
-              "example": {
-                "type": "image/png",
-                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/qBc3HwAAAABJRU5ErkJggg=="
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "operationId": "getBrandLogo",
-        "summary": "Read one of the operator's logos: the draft's, the published one's or the last upload.",
-        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: The image file.",
-        "x-crx-role": "viewer",
-        "responses": {
-          "200": {
-            "description": "The image file.",
-            "content": {
-              "image/png": {},
-              "image/jpeg": {},
-              "image/webp": {}
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/not_found"
-          },
-          "429": {
-            "$ref": "#/components/responses/rate_limited"
-          }
-        },
         "x-crx-scope": "read",
-        "x-crx-sdk": "logo",
+        "x-crx-permission": "kyb.read",
+        "x-crx-sdk": "kyb_cases",
         "parameters": [
           {
-            "name": "id",
+            "name": "after",
             "in": "query",
             "required": false,
-            "description": "The logo id, the brand's logo field.",
+            "description": "The `nextCursor` value of the previous answer: the page after it.",
             "schema": {
               "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/brand/logo/{id}": {
-      "get": {
-        "operationId": "getBrandLogoId",
-        "summary": "Read a published logo by its id, the brand's logo field.",
-        "description": "No caller is needed.\n\nAnswer: The image file.",
-        "x-crx-role": "none",
-        "responses": {
-          "200": {
-            "description": "The image file.",
-            "content": {
-              "image/png": {},
-              "image/jpeg": {},
-              "image/webp": {}
             }
           },
-          "404": {
-            "$ref": "#/components/responses/not_found"
-          }
-        },
-        "x-crx-sdk": "published_logo",
-        "security": [],
-        "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most cases to answer, 1 to 100. Default: 20.",
             "schema": {
               "type": "string"
             }
           }
         ]
-      }
-    },
-    "/brand/publish": {
+      },
       "post": {
-        "operationId": "postBrandPublish",
-        "summary": "Publish the draft.",
-        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The published brand and publishedAt.",
-        "x-crx-role": "admin",
+        "operationId": "postKybCases",
+        "summary": "Open a KYB case for a client firm.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nA contact address that is no company address, CRX's or your own firm's answers 400 with `field` contact.email; a firm linked to another operator, 409. An externalId already on one of your cases answers 409 with reason `duplicate_external_id` and that case's `caseId`; a firm that already has a case, 409 with reason `case_exists`, and its `caseId` when the case is yours.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
         "responses": {
-          "200": {
-            "description": "The published brand and publishedAt.",
+          "201": {
+            "description": "The case.",
             "content": {
               "application/json": {
                 "example": {
-                  "published": {
-                    "displayName": "Northwind",
-                    "logo": "3f9c2a71b0d4e6a8.png",
-                    "colors": {
-                      "primary": "#02213b",
-                      "primaryText": "#ffffff",
-                      "background": "#fcfcfc",
-                      "text": "#0d0d0d",
-                      "accent": "#455acc"
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "preparing",
+                  "version": 1,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-09T14:05:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "current"
                     },
-                    "font": "Inter",
-                    "senderName": "Northwind",
-                    "supportEmail": "support@northwind-operator.example",
-                    "texts": {
-                      "welcomeTitle": "Set up your business",
-                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
-                      "helpLine": "For help, reply to any email from us.",
-                      "doneBody": "We have your application. We will email you at each step."
+                    {
+                      "key": "eligibility",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "people",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "review",
+                      "state": "not_started"
                     }
+                  ],
+                  "requirements": {
+                    "due": [
+                      {
+                        "key": "owners",
+                        "section": "people",
+                        "code": "required",
+                        "message": "Name each person who owns 25% or more of the firm."
+                      }
+                    ],
+                    "waiting": []
                   },
-                  "publishedAt": "2026-11-09T14:05:00.000Z"
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "not_started"
+                      },
+                      "signature": {
+                        "state": "not_open"
+                      }
+                    }
+                  ],
+                  "documents": [],
+                  "decision": null
                 }
               }
             }
@@ -1348,19 +1337,1456 @@
             "$ref": "#/components/responses/unavailable"
           }
         },
-        "x-crx-scope": "admin",
-        "x-crx-sdk": "publish_brand"
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_create_case",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "firmName",
+                  "country",
+                  "contact"
+                ],
+                "properties": {
+                  "externalId": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "Optional. Your own id for the client, unique among your cases, at most 100 characters."
+                  },
+                  "firmName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The client firm's legal name."
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{2}$",
+                    "description": "The country of registration: ISO 3166-1 alpha-2, one of `countries` of GET /kyb/fields, for example `GB`."
+                  },
+                  "lei": {
+                    "type": "string",
+                    "pattern": "^[A-Z0-9]{18}[0-9]{2}$",
+                    "description": "Optional. The firm's LEI: 20 characters."
+                  },
+                  "registrationNumber": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "Optional. The firm's registration number."
+                  },
+                  "contact": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "email"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string",
+                        "format": "email"
+                      }
+                    },
+                    "description": "The client's contact: `name` and `email`, a company address. The client firm is the address's firm."
+                  }
+                }
+              },
+              "example": {
+                "externalId": "client-4471",
+                "firmName": "Acme Trading Ltd",
+                "country": "GB",
+                "contact": {
+                  "name": "Sam Lee",
+                  "email": "treasury@acme.example"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kyb/cases/{caseId}": {
+      "get": {
+        "operationId": "getKybCasesCaseId",
+        "summary": "Read one KYB case: its state, its steps, what is due, its people and its documents.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nCRX sends each signer the link to sign CRX's documents. `requirements.waiting` lists each signer CRX still sends a link to: code `signing_link`, with the `personKey`. `people[].signature.state` shows `to_sign`, then `signed`. CRX's request for more information is the due item `crx_request`: its text in `message`, the sections it reopens in `sections`.\n\nAnswer: The case: caseId, externalId, firmId (the client firm, as GET /clients/{firmId} names it, or null), state (`preparing`, `in_progress`, `with_crx`, `approved`, `declined` or `closed`; `invited` for clients CRX invites: an API case goes from `preparing` to `in_progress`), version, returns (the count of CRX's requests for more information so far), createdAt, updatedAt, firmName, country, steps (key, and state: `not_started`, `current`, `waiting` or `done`), requirements (`due`: key, section, code and message, and sections on `crx_request`; `waiting`: who, code and message, and personKey when the item names a person), people (personKey, roles, the ID check's state and the signature's state), documents, and decision (outcome and decidedAt, or null). `version` rises by 1 at each change of the case.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "The case: caseId, externalId, firmId (the client firm, as GET /clients/{firmId} names it, or null), state (`preparing`, `in_progress`, `with_crx`, `approved`, `declined` or `closed`; `invited` for clients CRX invites: an API case goes from `preparing` to `in_progress`), version, returns (the count of CRX's requests for more information so far), createdAt, updatedAt, firmName, country, steps (key, and state: `not_started`, `current`, `waiting` or `done`), requirements (`due`: key, section, code and message, and sections on `crx_request`; `waiting`: who, code and message, and personKey when the item names a person), people (personKey, roles, the ID check's state and the signature's state), documents, and decision (outcome and decidedAt, or null). `version` rises by 1 at each change of the case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "approved",
+                  "version": 34,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-11T14:20:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "done"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "done"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "done"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "done"
+                    },
+                    {
+                      "key": "review",
+                      "state": "done"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [],
+                    "waiting": []
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "done"
+                      },
+                      "signature": {
+                        "state": "signed"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": false
+                    }
+                  ],
+                  "decision": {
+                    "outcome": "approved",
+                    "decidedAt": "2026-11-11T14:20:00.000Z"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-permission": "kyb.read",
+        "x-crx-sdk": "kyb_case",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/kyb/cases/{caseId}/answers": {
+      "post": {
+        "operationId": "postKybCasesCaseIdAnswers",
+        "summary": "Save answers on a case. A field given as null is cleared.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nA value that is not valid answers 400 with `field`. Rules that join several answers run when the section is confirmed.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "in_progress",
+                  "version": 7,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-09T15:40:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "current"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "review",
+                      "state": "not_started"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [
+                      {
+                        "key": "owners",
+                        "section": "people",
+                        "code": "required",
+                        "message": "Name each person who owns 25% or more of the firm."
+                      }
+                    ],
+                    "waiting": []
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "not_started"
+                      },
+                      "signature": {
+                        "state": "not_open"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": false
+                    }
+                  ],
+                  "decision": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_save_answers",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fields"
+                ],
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "An object: a field key of GET /kyb/fields → its value, or null to clear it."
+                  }
+                }
+              },
+              "example": {
+                "fields": {
+                  "crx_registration_number": "09876543",
+                  "crx_pp_different": false,
+                  "crx_foreign_tin": null
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kyb/cases/{caseId}/sections/{section}/confirm": {
+      "post": {
+        "operationId": "postKybCasesCaseIdSectionsSectionConfirm",
+        "summary": "Confirm a section of a case: business, eligibility, people or ownership.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAnother section answers 400 with `field` section; POST /kyb/cases/{caseId}/documents/done closes the documents step. An answer that is not valid answers 400 with `field`. A case that is not complete answers 409 with reason `missing_requirements` and `missing`, the items still due.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "in_progress",
+                  "version": 7,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-09T15:40:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "current"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "review",
+                      "state": "not_started"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [
+                      {
+                        "key": "owners",
+                        "section": "people",
+                        "code": "required",
+                        "message": "Name each person who owns 25% or more of the firm."
+                      }
+                    ],
+                    "waiting": []
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "not_started"
+                      },
+                      "signature": {
+                        "state": "not_open"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": false
+                    }
+                  ],
+                  "decision": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_confirm_section",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "section",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/kyb/cases/{caseId}/documents": {
+      "post": {
+        "operationId": "postKybCasesCaseIdDocuments",
+        "summary": "Upload one document to a case: PDF, PNG or JPEG, at most 10 MB.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nThe body is the file's bytes, with Content-Type application/pdf, image/png or image/jpeg; the signature hashes those bytes. A file already on the case answers 409 with reason `duplicate_document` and its `documentId`.\n\nAnswer: The document: documentId, requirement, filename, contentType, size, sha256 and uploadedAt.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "201": {
+            "description": "The document: documentId, requirement, filename, contentType, size, sha256 and uploadedAt.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                  "requirement": "formation",
+                  "filename": "certificate-of-incorporation.pdf",
+                  "contentType": "application/pdf",
+                  "size": 482113,
+                  "sha256": "9b74c9897bac770ffc029102a200c5de4f1c7c4f0d1a8b6e5a3f2c1d0e9b8a7f",
+                  "uploadedAt": "2026-11-09T15:32:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_upload_document",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "CRX-Filename",
+            "in": "header",
+            "required": true,
+            "description": "The file name: 1 to 200 characters, with no / or \\.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "CRX-Requirement",
+            "in": "header",
+            "required": true,
+            "description": "The requirement the file meets: the `key` of a document item the case lists as due. `documents` of GET /kyb/fields names each.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/pdf": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kyb/cases/{caseId}/documents/{documentId}/remove": {
+      "post": {
+        "operationId": "postKybCasesCaseIdDocumentsDocumentIdRemove",
+        "summary": "Remove a document from a case. CRX keeps the file on record.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "in_progress",
+                  "version": 7,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-09T15:40:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "current"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "review",
+                      "state": "not_started"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [
+                      {
+                        "key": "owners",
+                        "section": "people",
+                        "code": "required",
+                        "message": "Name each person who owns 25% or more of the firm."
+                      }
+                    ],
+                    "waiting": []
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "not_started"
+                      },
+                      "signature": {
+                        "state": "not_open"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": true
+                    }
+                  ],
+                  "decision": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_remove_document",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/kyb/cases/{caseId}/documents/done": {
+      "post": {
+        "operationId": "postKybCasesCaseIdDocumentsDone",
+        "summary": "Mark the documents step of a case done.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nA case that is not complete answers 409 with reason `missing_requirements` and `missing`, the items still due.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "in_progress",
+                  "version": 7,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-09T15:40:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "current"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "review",
+                      "state": "not_started"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [
+                      {
+                        "key": "owners",
+                        "section": "people",
+                        "code": "required",
+                        "message": "Name each person who owns 25% or more of the firm."
+                      }
+                    ],
+                    "waiting": []
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "not_started"
+                      },
+                      "signature": {
+                        "state": "not_open"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": false
+                    }
+                  ],
+                  "decision": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_documents_done",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/kyb/cases/{caseId}/people/{personKey}/id-check-link": {
+      "post": {
+        "operationId": "postKybCasesCaseIdPeoplePersonKeyIdchecklink",
+        "summary": "Get a link to a person's ID check, on a CRX page. The person's previous link stops working.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nEach person gives consent on CRX's ID check page. A person whose ID check is done or not open yet: 409 with reason `link_unavailable`; `message` names the cause and the next step. A personKey that is not on the case: 404.\n\nAnswer: `url`, the link, and `expiresAt`.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "`url`, the link, and `expiresAt`.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "url": "https://kyb.crxfx.com/verify/example",
+                  "expiresAt": "2026-11-10T15:40:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_id_check_link",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "personKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/kyb/cases/{caseId}/wallet": {
+      "post": {
+        "operationId": "postKybCasesCaseIdWallet",
+        "summary": "Answer the wallet step of a case: the client adds its wallet in Discover.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nThe step opens once business, eligibility, people and ownership are confirmed. A case with no wallet step: 409 with reason `no_wallet_step`. After the decision: 409 with reason `case_locked`.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "in_progress",
+                  "version": 7,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-09T15:40:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "current"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "review",
+                      "state": "not_started"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [
+                      {
+                        "key": "owners",
+                        "section": "people",
+                        "code": "required",
+                        "message": "Name each person who owns 25% or more of the firm."
+                      }
+                    ],
+                    "waiting": []
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "not_started"
+                      },
+                      "signature": {
+                        "state": "not_open"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": false
+                    }
+                  ],
+                  "decision": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_set_wallet",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "none"
+                    ],
+                    "description": "`none`: no wallet address on the case; the client adds the wallet in Discover."
+                  },
+                  "custody": {
+                    "type": "string",
+                    "enum": [
+                      "fireblocks",
+                      "bitgo",
+                      "other",
+                      "self_hosted"
+                    ],
+                    "description": "Optional. How the client holds its assets: `fireblocks`, `bitgo`, `other` (with custodian) or `self_hosted`."
+                  },
+                  "custodian": {
+                    "type": "string",
+                    "description": "Optional. With custody `other`: the custodian's name."
+                  }
+                }
+              },
+              "example": {
+                "type": "none",
+                "custody": "fireblocks"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kyb/cases/{caseId}/submit": {
+      "post": {
+        "operationId": "postKybCasesCaseIdSubmit",
+        "summary": "Send a case to CRX for review.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nA case that is not complete answers 409 with reason `missing_requirements` and `missing`, the items still due. The last signature can send the case to CRX first: submit then answers the case unchanged.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "with_crx",
+                  "version": 31,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-10T16:12:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "done"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "done"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "done"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "done"
+                    },
+                    {
+                      "key": "review",
+                      "state": "waiting"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [],
+                    "waiting": [
+                      {
+                        "who": "crx",
+                        "code": "crx_review",
+                        "message": "CRX is reviewing the case."
+                      }
+                    ]
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "done"
+                      },
+                      "signature": {
+                        "state": "signed"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": false
+                    }
+                  ],
+                  "decision": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_submit",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/kyb/cases/{caseId}/withdraw": {
+      "post": {
+        "operationId": "postKybCasesCaseIdWithdraw",
+        "summary": "Withdraw a case before CRX decides.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAnswer: The case.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "The case.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "caseId": "case_Q2x8LmT4vR1nYp0a",
+                  "externalId": "client-4471",
+                  "firmId": "acme.example",
+                  "state": "closed",
+                  "version": 7,
+                  "returns": 0,
+                  "createdAt": "2026-11-09T14:05:00.000Z",
+                  "updatedAt": "2026-11-09T15:40:00.000Z",
+                  "firmName": "Acme Trading Ltd",
+                  "country": "GB",
+                  "steps": [
+                    {
+                      "key": "business",
+                      "state": "done"
+                    },
+                    {
+                      "key": "eligibility",
+                      "state": "done"
+                    },
+                    {
+                      "key": "people",
+                      "state": "current"
+                    },
+                    {
+                      "key": "documents",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "id_checks",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "signatures",
+                      "state": "not_started"
+                    },
+                    {
+                      "key": "review",
+                      "state": "not_started"
+                    }
+                  ],
+                  "requirements": {
+                    "due": [
+                      {
+                        "key": "owners",
+                        "section": "people",
+                        "code": "required",
+                        "message": "Name each person who owns 25% or more of the firm."
+                      }
+                    ],
+                    "waiting": []
+                  },
+                  "people": [
+                    {
+                      "personKey": "4c2e4c2e91b0",
+                      "roles": [
+                        "owner",
+                        "signer",
+                        "contact"
+                      ],
+                      "idCheck": {
+                        "state": "not_started"
+                      },
+                      "signature": {
+                        "state": "not_open"
+                      }
+                    }
+                  ],
+                  "documents": [
+                    {
+                      "documentId": "Wq3nY8pL2xT6vR0aM4kZ9cB1",
+                      "requirement": "formation",
+                      "filename": "certificate-of-incorporation.pdf",
+                      "contentType": "application/pdf",
+                      "size": 482113,
+                      "uploadedAt": "2026-11-09T15:32:00.000Z",
+                      "removed": false
+                    }
+                  ],
+                  "decision": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "kyb.write",
+        "x-crx-sdk": "kyb_withdraw",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/brand": {
+      "get": {
+        "operationId": "getBrand",
+        "summary": "Read the published brand. CRX sets the brand.",
+        "description": "Role: viewer. Console session only; API keys are refused.\n\nAnswer: Published and publishedAt.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "Published and publishedAt.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "published": {
+                    "displayName": "Northwind",
+                    "logo": "3f9c2a71b0d4e6a8.png",
+                    "senderName": "Northwind",
+                    "supportEmail": "support@northwind-operator.example",
+                    "texts": {
+                      "welcomeTitle": "Set up your business",
+                      "welcomeBody": "Northwind verifies each business before it trades. Check the details, add the rest, then sign.",
+                      "helpLine": "For help, reply to any email from us.",
+                      "doneBody": "We have your application. We will email you at each step."
+                    }
+                  },
+                  "publishedAt": "2026-11-09T14:05:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      }
+    },
+    "/brand/logo": {
+      "get": {
+        "operationId": "getBrandLogo",
+        "summary": "Read the published logo.",
+        "description": "Role: viewer. Console session only; API keys are refused.\n\nAnswer: The image file.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "The image file.",
+            "content": {
+              "image/png": {},
+              "image/jpeg": {},
+              "image/webp": {}
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "The logo id, the published brand's logo field.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/keys": {
       "get": {
         "operationId": "getKeys",
         "summary": "List API keys.",
-        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: Keys: id, name, scope, publicKey, createdAt, lastUsedAt, revokedAt, by.",
+        "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: Keys: id, name, permissions, scope (null for a key made with permissions), publicKey, createdAt, lastUsedAt, revokedAt, by.",
         "x-crx-role": "admin",
         "responses": {
           "200": {
-            "description": "Keys: id, name, scope, publicKey, createdAt, lastUsedAt, revokedAt, by.",
+            "description": "Keys: id, name, permissions, scope (null for a key made with permissions), publicKey, createdAt, lastUsedAt, revokedAt, by.",
             "content": {
               "application/json": {}
             }
@@ -1429,6 +2855,9 @@
                   },
                   "publicKey": {
                     "description": "The Ed25519 public key: 32 bytes in base64, or a PEM public key."
+                  },
+                  "permissions": {
+                    "description": "The key's permissions: one or more names of x-crx-permissions. Give permissions or scope, not both."
                   }
                 }
               }
@@ -1440,7 +2869,7 @@
     "/keys/{id}/revoke": {
       "post": {
         "operationId": "postKeysIdRevoke",
-        "summary": "Revoke an API key. Requests signed with it are refused.",
+        "summary": "Revoke an API key. Requests signed with it are refused, and its webhook endpoint is deleted.",
         "description": "Role: admin. Console session only; API keys are refused.\n\nAnswer: The revoked key.",
         "x-crx-role": "admin",
         "responses": {
@@ -1587,59 +3016,15 @@
         }
       }
     },
-    "/open": {
-      "post": {
-        "operationId": "postOpen",
-        "summary": "Open a test operator's console, or close it. CRX staff only.",
-        "description": "CRX staff session only; API keys and operator members are refused.\n\nAnswer: `open`: the desk opened, or null.",
-        "x-crx-role": "admin",
-        "responses": {
-          "200": {
-            "description": "`open`: the desk opened, or null.",
-            "content": {
-              "application/json": {}
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/bad_request"
-          },
-          "403": {
-            "$ref": "#/components/responses/forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/not_found"
-          },
-          "503": {
-            "$ref": "#/components/responses/unavailable"
-          }
-        },
-        "x-crx-staff": true,
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "as": {
-                    "description": "The test operator's desk, or null to close."
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/webhooks": {
       "get": {
         "operationId": "getWebhooks",
         "summary": "List webhook endpoints.",
-        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: Endpoints: id, url, events, description, createdAt, by.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: Endpoints: id, url, events, description, keyId (the API key the endpoint belongs to, else null), createdAt, by.",
         "x-crx-role": "admin",
         "responses": {
           "200": {
-            "description": "Endpoints: id, url, events, description, createdAt, by.",
+            "description": "Endpoints: id, url, events, description, keyId (the API key the endpoint belongs to, else null), createdAt, by.",
             "content": {
               "application/json": {
                 "example": {
@@ -1652,6 +3037,7 @@
                         "kyb.case.updated"
                       ],
                       "description": "KYB updates",
+                      "keyId": null,
                       "createdAt": "2026-11-09T14:05:00.000Z",
                       "by": "ana@northwind-operator.example"
                     }
@@ -1674,12 +3060,13 @@
           }
         },
         "x-crx-scope": "admin",
+        "x-crx-permission": "webhooks.manage",
         "x-crx-sdk": "webhooks"
       },
       "post": {
         "operationId": "postWebhooks",
         "summary": "Add a webhook endpoint.",
-        "description": "Role: admin. API key scope: admin or higher.\n\nAnswer: The endpoint and its signing secret. The secret is in this answer only.",
+        "description": "Role: admin. API key scope: admin or higher.\n\nA console session may also send, in the body: keyId: Optional. An active API key of the firm that holds no endpoint yet. The endpoint belongs to the key; revoking the key deletes it.\n\nAnswer: The endpoint and its signing secret. The secret is in this answer only.",
         "x-crx-role": "admin",
         "responses": {
           "200": {
@@ -1689,12 +3076,13 @@
                 "example": {
                   "webhook": {
                     "id": "wh_5b8e1d3f7a9c2e40",
-                    "url": "https://hooks.northwind-operator.example/crx",
+                    "url": "https://hooks.northwind.example/crx",
                     "events": [
-                      "invite.sent",
-                      "kyb.case.updated"
+                      "kyb.case.changed",
+                      "kyb.case.decided"
                     ],
-                    "description": "KYB updates",
+                    "description": "KYB cases",
+                    "keyId": null,
                     "createdAt": "2026-11-09T14:05:00.000Z",
                     "by": "ana@northwind-operator.example"
                   },
@@ -1726,6 +3114,7 @@
           }
         },
         "x-crx-scope": "admin",
+        "x-crx-permission": "webhooks.manage",
         "x-crx-sdk": "add_webhook",
         "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
         "requestBody": {
@@ -1739,7 +3128,7 @@
                     "description": "An https URL on a public address. Redirects are not followed."
                   },
                   "events": {
-                    "description": "One or more of invite.sent, invite.resent, invite.revoked, kyb.case.updated, trade.opened, trade.closed, ping."
+                    "description": "One or more of invite.sent, invite.resent, invite.revoked, kyb.case.updated, kyb.case.created, kyb.case.changed, kyb.case.returned, kyb.case.decided, kyb.person.updated, trade.opened, trade.closed, ping."
                   },
                   "description": {
                     "description": "Optional, at most 120 characters."
@@ -1749,10 +3138,10 @@
               "example": {
                 "url": "https://hooks.northwind.example/crx",
                 "events": [
-                  "kyb.case.updated",
-                  "invite.sent"
+                  "kyb.case.changed",
+                  "kyb.case.decided"
                 ],
-                "description": "KYB updates"
+                "description": "KYB cases"
               }
             }
           }
@@ -1799,6 +3188,7 @@
           }
         },
         "x-crx-scope": "admin",
+        "x-crx-permission": "webhooks.manage",
         "x-crx-sdk": "delete_webhook",
         "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
         "parameters": [
@@ -1864,6 +3254,7 @@
           }
         },
         "x-crx-scope": "admin",
+        "x-crx-permission": "webhooks.manage",
         "x-crx-sdk": "test_webhook",
         "x-crx-stepup": "A console session needs a fresh confirmation (POST /stepup/code, then POST /stepup/verify); without one it answers 401 with code stepup_required. An API key is not asked.",
         "parameters": [
@@ -1925,6 +3316,7 @@
           }
         },
         "x-crx-scope": "admin",
+        "x-crx-permission": "webhooks.manage",
         "x-crx-sdk": "webhook_deliveries",
         "parameters": [
           {
@@ -1941,7 +3333,7 @@
     "/audit": {
       "get": {
         "operationId": "getAudit",
-        "summary": "Read the audit log.",
+        "summary": "Read the activity log.",
         "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Rows: at, actor, via, action, target, result, detail.",
         "x-crx-role": "viewer",
         "responses": {
@@ -1982,6 +3374,7 @@
           }
         },
         "x-crx-scope": "read",
+        "x-crx-permission": "audit.read",
         "x-crx-sdk": "audit",
         "parameters": [
           {
@@ -2062,5 +3455,18 @@
         "security": []
       }
     }
+  },
+  "x-crx-permissions": {
+    "clients.read": "Read your clients and their KYB status",
+    "accounts.read": "Read each client's balances, trades and positions",
+    "invites.read": "Read invites",
+    "invites.write": "Send, re-send and revoke invites",
+    "team.read": "Read your team",
+    "team.write": "Change your team's roles",
+    "kyb.read": "Read the KYB cases you open through the API",
+    "kyb.write": "Open KYB cases, send their answers and documents, and submit them",
+    "webhooks.manage": "Add, test and remove webhook URLs",
+    "audit.read": "Read the activity log",
+    "account.read": "Read your firm's name and this key (every key holds it)"
   }
 }

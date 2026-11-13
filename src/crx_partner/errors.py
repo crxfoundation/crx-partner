@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# The error fields a KYB refusal may add beside ``reason``, kept in ``ApiError.details``.
+DETAIL_FIELDS = ("missing", "caseId", "documentId")
+
 # The code of a refusal with no readable error body, by HTTP status.
 STATUS_CODES = {
     400: "bad_request",
@@ -31,16 +34,24 @@ class ApiError(Exception):
         message: The API's message.
         field: The body field the error is about, or None.
         request_id: The CRX-Request-Id of the answer, or None.
+        reason: Why a KYB conflict refused the write (``missing_requirements``, ``case_locked``,
+            ``duplicate_external_id``, ``case_exists``, ``duplicate_document``, ``link_unavailable``,
+            ``no_wallet_step``), or None.
+        details: The KYB fields of the refusal as the API sent them: ``missing`` (the items still due),
+            ``caseId`` or ``documentId``. Empty for none.
     """
 
     def __init__(
         self, status: int | None, code: str, message: str, field: str | None = None, request_id: str | None = None,
+        reason: str | None = None, details: dict[str, Any] | None = None,
     ) -> None:
         self.status = status
         self.code = clean(code, 64)
         self.message = clean(message, 500)
         self.field = None if field is None else clean(field, 100)
         self.request_id = None if request_id is None else clean(request_id, 64)
+        self.reason = None if reason is None else clean(reason, 64)
+        self.details = dict(details or {})
         super().__init__(f"{self.code}: {self.message}")
 
     def __repr__(self) -> str:
