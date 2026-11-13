@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crx-partner"
-version = "0.3.1"
+version = "0.3.2"
 description = "Python SDK for the CRX Manage API"
 readme = "README.md"
 license = "LicenseRef-CRX-Proprietary"

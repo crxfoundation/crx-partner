@@ -210,15 +210,54 @@
         "x-crx-sdk": "me"
       }
     },
+    "/balance": {
+      "get": {
+        "operationId": "getBalance",
+        "summary": "Read your firm's account balance.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: asOf: the time of the balance; readAt: the time it was read; collateral, free and locked: USDC amounts as strings. Locked is held as margin. A firm with no account answers 404; a balance that cannot be read, 503.",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "asOf: the time of the balance; readAt: the time it was read; collateral, free and locked: USDC amounts as strings. Locked is held as margin. A firm with no account answers 404; a balance that cannot be read, 503.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "asOf": "2026-11-09T14:05:00.000Z",
+                  "readAt": "2026-11-09T14:05:00.000Z",
+                  "collateral": "15000.00",
+                  "free": "12500.00",
+                  "locked": "2500.00"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-permission": "balance.read",
+        "x-crx-sdk": "balance"
+      }
+    },
     "/team": {
       "get": {
         "operationId": "getTeam",
         "summary": "List the operator's members.",
-        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Members: email, name, member role, console role.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Members: email, name, member role, console role, idCheck (`passed`, `pending`, `failed` or `none`) and screen (`clear`, `hold` or `pending`); both null when they cannot be read; screen null unless the caller is an admin.",
         "x-crx-role": "viewer",
         "responses": {
           "200": {
-            "description": "Members: email, name, member role, console role.",
+            "description": "Members: email, name, member role, console role, idCheck (`passed`, `pending`, `failed` or `none`) and screen (`clear`, `hold` or `pending`); both null when they cannot be read; screen null unless the caller is an admin.",
             "content": {
               "application/json": {
                 "example": {
@@ -227,13 +266,17 @@
                       "email": "ana@northwind-operator.example",
                       "name": "Ana Lima",
                       "memberRole": "admin",
-                      "role": "admin"
+                      "role": "admin",
+                      "idCheck": "passed",
+                      "screen": "clear"
                     },
                     {
                       "email": "ben@northwind-operator.example",
                       "name": "Ben Ito",
                       "memberRole": "reader",
-                      "role": "viewer"
+                      "role": "viewer",
+                      "idCheck": "pending",
+                      "screen": "pending"
                     }
                   ]
                 }
@@ -377,6 +420,237 @@
               "example": {
                 "email": "ana.ruiz@northwind.example",
                 "role": "reviewer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/end-users": {
+      "get": {
+        "operationId": "getEndusers",
+        "summary": "List your approved end users, newest first.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: endUsers: externalCustomerId, label (null for none), status (`active` or `removed`), addedAt and removedAt (Unix milliseconds; removedAt null while active), addedBy and removedBy (an email or an API key ID).",
+        "x-crx-role": "viewer",
+        "responses": {
+          "200": {
+            "description": "endUsers: externalCustomerId, label (null for none), status (`active` or `removed`), addedAt and removedAt (Unix milliseconds; removedAt null while active), addedBy and removedBy (an email or an API key ID).",
+            "content": {
+              "application/json": {
+                "example": {
+                  "endUsers": [
+                    {
+                      "externalCustomerId": "cus_7Hq2Lk",
+                      "label": "MX payroll",
+                      "status": "active",
+                      "addedAt": 1794233100000,
+                      "addedBy": "ana@northwind-operator.example",
+                      "removedAt": null,
+                      "removedBy": null
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/not_found"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "read",
+        "x-crx-permission": "end_users.read",
+        "x-crx-sdk": "end_users",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "`active` or `removed`. Default: both.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalCustomerId",
+            "in": "query",
+            "required": false,
+            "description": "One end user's ID: that end user alone, else 404. In a raw URL, encode it, and `+` as `%2B`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postEndusers",
+        "summary": "Add approved end users, each by your firm's own customer ID.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nAn ID that is active stays as it is (kept). A removed ID is active again (reactivated). A bad row refuses the whole call: `field` names it, for example `users[2].externalCustomerId`. A call that would leave more than 10,000 active end users answers 409. The body is at most 512 KB.\n\nAnswer: added, kept and reactivated: the number of end users in each.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "added, kept and reactivated: the number of end users in each.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "added": 1,
+                  "kept": 0,
+                  "reactivated": 1
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "end_users.write",
+        "x-crx-sdk": "add_end_users",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "users"
+                ],
+                "properties": {
+                  "users": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "externalCustomerId"
+                      ],
+                      "properties": {
+                        "externalCustomerId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "label": {
+                          "type": "string",
+                          "maxLength": 80
+                        }
+                      }
+                    },
+                    "description": "1 to 1,000 end users. Each: externalCustomerId, your firm's own customer ID, kept as given (1 to 128 printable ASCII characters); label, optional, at most 80 characters."
+                  }
+                }
+              },
+              "example": {
+                "users": [
+                  {
+                    "externalCustomerId": "cus_7Hq2Lk",
+                    "label": "MX payroll"
+                  },
+                  {
+                    "externalCustomerId": "cus_9Rt4Mn"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/end-users/remove": {
+      "post": {
+        "operationId": "postEndusersRemove",
+        "summary": "Remove approved end users.",
+        "description": "Role: reviewer. API key scope: write or higher.\n\nA removed end user stays on the list with status `removed`; POST /end-users makes it active again. An ID not on the list, or already removed, counts as absent. A bad ID refuses the whole call: `field` names it, for example `externalCustomerIds[0]`. The body is at most 512 KB.\n\nAnswer: removed and absent: the number of IDs in each.",
+        "x-crx-role": "reviewer",
+        "responses": {
+          "200": {
+            "description": "removed and absent: the number of IDs in each.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "removed": 1,
+                  "absent": 0
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/bad_request"
+          },
+          "401": {
+            "$ref": "#/components/responses/unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/rate_limited"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        },
+        "x-crx-scope": "write",
+        "x-crx-permission": "end_users.write",
+        "x-crx-sdk": "remove_end_users",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "externalCustomerIds"
+                ],
+                "properties": {
+                  "externalCustomerIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "description": "1 to 1,000 IDs of your end users."
+                  }
+                }
+              },
+              "example": {
+                "externalCustomerIds": [
+                  "cus_7Hq2Lk"
+                ]
               }
             }
           }
@@ -3334,11 +3608,11 @@
       "get": {
         "operationId": "getAudit",
         "summary": "Read the activity log.",
-        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Rows: at, actor, via, action, target, result, detail.",
+        "description": "Role: viewer. API key scope: read or higher.\n\nAnswer: Rows: at, actor, via, action, target, result, detail. A row whose target is an end user's adds externalCustomerId, the exact ID, when it resolves.",
         "x-crx-role": "viewer",
         "responses": {
           "200": {
-            "description": "Rows: at, actor, via, action, target, result, detail.",
+            "description": "Rows: at, actor, via, action, target, result, detail. A row whose target is an end user's adds externalCustomerId, the exact ID, when it resolves.",
             "content": {
               "application/json": {
                 "example": {
@@ -3356,6 +3630,17 @@
                         "kind": "person",
                         "firmId": "harbor-trade.test"
                       }
+                    },
+                    {
+                      "at": "2026-11-09T14:05:00.000Z",
+                      "requestId": "req_2c7e9a4f1b3d5e60",
+                      "operator": "northwind-operator.example",
+                      "actor": "mk_4f1a9c0e2b7d3a55",
+                      "via": "api",
+                      "action": "end_user.added",
+                      "target": "customer#e35573a50336ebf7",
+                      "result": "ok",
+                      "externalCustomerId": "3f2b8c1e-9d4a-4e7b-b1c2-6a5d8e9f0a1b"
                     }
                   ]
                 }
@@ -3430,6 +3715,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "externalCustomerId",
+            "in": "query",
+            "required": false,
+            "description": "One end user's ID: the rows of that end user alone. In a raw URL, encode it, and `+` as `%2B`.",
+            "schema": {
+              "type": "string"
+            }
           }
         ]
       }
@@ -3457,6 +3751,9 @@
     }
   },
   "x-crx-permissions": {
+    "end_users.read": "Read your approved end users",
+    "end_users.write": "Add and remove approved end users",
+    "balance.read": "Read your account balance",
     "clients.read": "Read your clients and their KYB status",
     "accounts.read": "Read each client's balances, trades and positions",
     "invites.read": "Read invites",

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 (13 Nov 2026)
+
+- Added the approved end-user methods: `end_users(status=None)`, `end_user(external_customer_id)`, `add_end_users(users)` (each `{"external_customer_id": ..., "label": ...}`) and `remove_end_users(external_customer_ids)`. Each end user is your own customer, under your own customer ID.
+- Added `balance()`: your firm's account balance.
+- `audit()` takes `external_customer_id`: the rows of one end user.
+- Every other method, argument and answer is unchanged.
+
 ## 0.3.1 (12 Nov 2026)
 
 - A read with no answer, or a 502, 503 or 504, is sent once more after a random pause of 0.5 to 1 s. Before, the pause was 0.5 s. A read still goes at most twice, and a write once.

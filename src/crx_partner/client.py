@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 import requests
 
+from ._end_users import EndUserOps
 from ._http import Transport, host_of
 from ._keys import load_key_file, public_key_b64
 from ._ops import ManageDeprecatedOps, ManageOps
@@ -80,8 +81,9 @@ class _Client:
                             content_type=content_type, auth=auth, idempotency_key=idempotency_key)
 
 
-class Manage(_Client, ManageOps, ManageDeprecatedOps):
-    """The Manage API: the operator console's clients, invites, KYB cases, team, webhooks and audit log."""
+class Manage(_Client, EndUserOps, ManageOps, ManageDeprecatedOps):
+    """The Manage API: your approved end users, your balance, team, webhooks and audit log, and the clients,
+    invites and KYB cases of earlier releases."""
 
     realm = "manage"
     api_name = "Manage API"

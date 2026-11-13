@@ -21,10 +21,21 @@ class ManageOps:
         """
         return self._call("GET", "/me")
 
+    def balance(self) -> Any:
+        """Read your firm's account balance.
+
+        Answer (dict): asOf: the time of the balance; readAt: the time it was read; collateral, free and
+        locked: USDC amounts as strings. Locked is held as margin. A firm with no account answers 404; a
+        balance that cannot be read, 503.
+        """
+        return self._call("GET", "/balance")
+
     def team(self) -> Any:
         """List the operator's members.
 
-        Answer (dict): Members: email, name, member role, console role.
+        Answer (dict): Members: email, name, member role, console role, idCheck (`passed`, `pending`, `failed`
+        or `none`) and screen (`clear`, `hold` or `pending`); both null when they cannot be read; screen null
+        unless the caller is an admin.
         """
         return self._call("GET", "/team")
 
@@ -45,6 +56,56 @@ class ManageOps:
             "POST",
             "/team/role",
             body={"email": email, "role": role},
+            idempotency_key=idempotency_key,
+        )
+
+    def end_users(self, *, status: Any = None, external_customer_id: Any = None) -> Any:
+        """List your approved end users, newest first.
+
+        Answer (dict): endUsers: externalCustomerId, label (null for none), status (`active` or `removed`),
+        addedAt and removedAt (Unix milliseconds; removedAt null while active), addedBy and removedBy (an
+        email or an API key ID).
+
+        Args:
+            status: `active` or `removed`. Default: both.
+            external_customer_id: One end user's ID: that end user alone, else 404. In a raw URL, encode it,
+                and `+` as `%2B`.
+        """
+        return self._call(
+            "GET",
+            "/end-users",
+            query={"status": status, "externalCustomerId": external_customer_id},
+        )
+
+    def add_end_users(self, *, users: Any = None, idempotency_key: str | None = None) -> Any:
+        """Add approved end users, each by your firm's own customer ID.
+
+        Answer (dict): added, kept and reactivated: the number of end users in each.
+
+        Args:
+            users: 1 to 1,000 end users. Each: externalCustomerId, your firm's own customer ID, kept as given
+                (1 to 128 printable ASCII characters); label, optional, at most 80 characters.
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call("POST", "/end-users", body={"users": users}, idempotency_key=idempotency_key)
+
+    def remove_end_users(
+        self, *, external_customer_ids: Any = None, idempotency_key: str | None = None
+    ) -> Any:
+        """Remove approved end users.
+
+        Answer (dict): removed and absent: the number of IDs in each.
+
+        Args:
+            external_customer_ids: 1 to 1,000 IDs of your end users.
+            idempotency_key: The Idempotency-Key. The same key and body within 24 hours answer the first
+                answer again. Default: a new key.
+        """
+        return self._call(
+            "POST",
+            "/end-users/remove",
+            body={"externalCustomerIds": external_customer_ids},
             idempotency_key=idempotency_key,
         )
 
@@ -482,11 +543,12 @@ class ManageOps:
 
     def audit(
         self, *, from_: Any = None, to: Any = None, action: Any = None, actor: Any = None, format: Any = None,
-        limit: Any = None
+        limit: Any = None, external_customer_id: Any = None
     ) -> Any:
         """Read the activity log.
 
-        Answer (dict; str for format='csv'): Rows: at, actor, via, action, target, result, detail.
+        Answer (dict; str for format='csv'): Rows: at, actor, via, action, target, result, detail. A row whose
+        target is an end user's adds externalCustomerId, the exact ID, when it resolves.
 
         Args:
             from_: ISO time, inclusive.
@@ -495,6 +557,8 @@ class ManageOps:
             actor: One actor.
             format: `csv` for a CSV file.
             limit: The most rows to answer, 1 to 5000. Default: 500.
+            external_customer_id: One end user's ID: the rows of that end user alone. In a raw URL, encode it,
+                and `+` as `%2B`.
         """
         return self._call(
             "GET",
@@ -506,6 +570,7 @@ class ManageOps:
                 "actor": actor,
                 "format": format,
                 "limit": limit,
+                "externalCustomerId": external_customer_id,
             },
         )
 

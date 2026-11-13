@@ -15,7 +15,7 @@ Create an API key: API, Quickstart, Create a key. Name it and pick its permissio
 Install the SDK on Python 3.10 or later.
 
 ```bash
-pip install "git+https://github.com/crxfoundation/crx-partner@v0.3.1"
+pip install "git+https://github.com/crxfoundation/crx-partner@v0.3.2"
 ```
 
 Point the SDK at your key: the key id shown with the key, and the path of `partner.key`, the key you saved. Keep the key file readable by you alone.
@@ -69,6 +69,22 @@ print(inv["invite"]["id"])
 csv_text = m.audit(from_="2026-11-01T00:00:00Z", format="csv")
 ```
 
+### Approved end users
+
+Your firm keeps a list of the end users it approved, each under your own customer ID (`external_customer_id`, 1 to 128 printable ASCII characters, kept as given).
+
+```python
+m.add_end_users([{"external_customer_id": "cus_7Hq2Lk", "label": "MX payroll"}, {"external_customer_id": "cus_9Rt4Mn"}])
+print(m.end_user("cus_7Hq2Lk")["status"])         # 'active'
+for u in m.end_users(status="active")["endUsers"]:
+    print(u["externalCustomerId"], u["label"])
+m.remove_end_users(["cus_9Rt4Mn"])                 # {'removed': 1, 'absent': 0}
+rows = m.audit(external_customer_id="cus_7Hq2Lk")["rows"]
+print(m.balance())                                 # {'asOf': ..., 'collateral': ..., 'free': ..., 'locked': ...}
+```
+
+`add_end_users` and `remove_end_users` take 1 to 1,000 end users a call. An active ID stays as it is; a removed one is active again. `end_user` raises `ApiError` 404 for an ID not on your list.
+
 Each call is signed with the key (Ed25519, headers CRX-Key-Id, CRX-Timestamp, CRX-Nonce, CRX-Signature). A key takes 60 requests a minute.
 
 A write sends an `Idempotency-Key`. The API keeps it 24 hours: the same key and body answer the first answer again. A write is sent once. When it gets no answer (`NetworkError`), send it again with the same `idempotency_key=`. A read with no answer, or a 502, 503 or 504, is sent once more after a random pause of 0.5 to 1 s.
@@ -80,8 +96,12 @@ A write sends an `Idempotency-Key`. The API keeps it 24 hours: the same key and 
 | Method | Route | Returns | Does |
 |---|---|---|---|
 | `me()` | `GET /me` | dict | Read the operator and the caller. |
+| `balance()` | `GET /balance` | dict | Read your firm's account balance. |
 | `team()` | `GET /team` | dict | List the operator's members. |
 | `set_team_role(email=, role=)` | `POST /team/role` | dict | Set a member's console role. The last admin keeps the admin role. |
+| `end_users(status=, external_customer_id=)` | `GET /end-users` | dict | List your approved end users, newest first. |
+| `add_end_users(users=)` | `POST /end-users` | dict | Add approved end users, each by your firm's own customer ID. |
+| `remove_end_users(external_customer_ids=)` | `POST /end-users/remove` | dict | Remove approved end users. |
 | `clients()` | `GET /clients` | dict | List client firms. |
 | `client(firm_id)` | `GET /clients/{firmId}` | dict | Read one client's KYB file. |
 | `client_accounts(firm_id)` | `GET /clients/{firmId}/accounts` | dict | Read one client's account summary. |
@@ -109,7 +129,7 @@ A write sends an `Idempotency-Key`. The API keeps it 24 hours: the same key and 
 | `delete_webhook(id)` | `POST /webhooks/{id}/delete` | dict | Delete a webhook endpoint. Pending retries stop. |
 | `test_webhook(id)` | `POST /webhooks/{id}/test` | dict | Send a ping event to one endpoint, once. |
 | `webhook_deliveries(id)` | `GET /webhooks/{id}/deliveries` | dict | List an endpoint's delivery attempts, newest first. |
-| `audit(from_=, to=, action=, actor=, format=, limit=)` | `GET /audit` | dict; str for format='csv' | Read the activity log. |
+| `audit(from_=, to=, action=, actor=, format=, limit=, external_customer_id=)` | `GET /audit` | dict; str for format='csv' | Read the activity log. |
 | `openapi()` | `GET /openapi.json` | dict | Read this API as an OpenAPI 3.1 document. Served on the manage host alone. |
 
 <!-- methods:end -->
